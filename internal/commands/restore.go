@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/buildkite/zstash/pkg/store"
 	"github.com/mholt/archiver/v4"
 )
 
@@ -40,7 +37,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 			return nil // there was no fall back cache key so we can't restore
 		}
 
-		err = downloadFile(ctx, cmd.RemoteCacheURL, outputPath)
+		err = store.Download(ctx, cmd.RemoteCacheURL, outputPath)
 		if err != nil {
 			if globals.Debug {
 				log.Printf("Failed to download file: %v", err)
@@ -124,51 +121,6 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	if err != nil {
 		return fmt.Errorf("failed to archive: %w", err)
 	}
-
-	return nil
-}
-
-func downloadFile(ctx context.Context, remoteCacheURL, path string) error {
-
-	u, err := url.Parse(remoteCacheURL)
-	if err != nil {
-		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
-	}
-
-	sdkConfig, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		return fmt.Errorf("failed to load sdk config: %w", err)
-	}
-
-	// Create an Amazon S3 service client
-	client := s3.NewFromConfig(sdkConfig)
-
-	remotePath, err := url.JoinPath(u.Path, filepath.Base(path))
-	if err != nil {
-		return fmt.Errorf("failed to join path: %w", err)
-	}
-
-	getObj, err := client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(u.Host),
-		Key:    aws.String(remotePath),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get object: %w", err)
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
-	}
-
-	defer f.Close()
-
-	n, err := f.ReadFrom(getObj.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read from body: %w", err)
-	}
-
-	log.Printf("Downloaded from s3 bucket=%s key=%s size=%d", u.Host, remotePath, n)
 
 	return nil
 }
