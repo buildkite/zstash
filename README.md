@@ -19,11 +19,11 @@ Flags:
       --version
       --debug                      Enable debug mode.
 
-      --key=STRING                 Key to save.
+      --key=STRING                 Key to save, this can be a template string.
       --local-cache-path=STRING    Local cache path ($LOCAL_CACHE_PATH).
       --remote-cache-url=STRING    Remote cache URL ($REMOTE_CACHE_URL).
       --expires-in-secs=86400      Expires in seconds.
-      --multi-threaded             Enable multi-threaded compression.
+      --encoder-concurrency=8      Encoder concurrency.
 ```
 
 Restore usage.
@@ -47,17 +47,36 @@ Flags:
       --remote-cache-url=STRING    Remote cache URL ($REMOTE_CACHE_URL).
 ```
 
+## Key templates
+
+When your saving or restoring a key you can pass a template for the key name.
+
+Currently the template has the following inbuilt functions.
+
+- `shasum` this will read the provided file path and build a sha256 checksum then insert that into key name.
+- `env` this function takes a key and looks it up in the local environment and returns error if it doesn't exist.
+
+> [!NOTE]
+> When building a cache key missing environment variables are more important as we are aiming to be more explicit with the match of an archive.
 
 # Examples
 
 Save local node modules with only a local cache.
 
 ```
-zstash save --debug --key blah-123 --local-cache-path /tmp ./node_modules
+zstash save --local-cache-path /tmp --key '{{ env "BUILDKITE_PIPELINE_NAME" }}/{{ env "BUILDKITE_BRANCH" }}-{{ shasum "./package-lock.json" }}' ./node_modules/
 ```
 
 Restore local node modules with only a local cache.
 
 ```
-zstash restore --debug --key blah-123 --local-cache-path /tmp node_modules
+zstash restore --debug --key '{{ env "BUILDKITE_PIPELINE_NAME" }}/{{ env "BUILDKITE_BRANCH" }}-{{ shasum "./package-lock.json" }}' --local-cache-path /tmp node_modules
+```
+
+# Verification
+
+To verify the cache and restore worked you can use diff.
+
+```bash
+diff --recursive ../vite-artifact-demo/app/node_modules node_modules
 ```
