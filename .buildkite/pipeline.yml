@@ -1,0 +1,77 @@
+---
+agents:
+  queue: hosted
+steps:
+  - group: ':mag: QA'
+    id: quality-assurance
+    steps:
+    - key: lint
+      label: ':golangci-lint: lint'
+      command: golangci-lint run --timeout 2m0s
+      plugins:
+        - docker-compose#v5.3.0:
+            run: app
+    - key: test
+      label: ':golang: test'
+      env: {}
+      command: 
+        - go test -v -count=1 -cover ./... -coverprofile=coverage.txt -covermode=atomic
+      artifact_paths:
+        - 'coverage.txt'
+      plugins:
+        - docker-compose#v5.3.0:
+            run: app
+    - key: security_scan
+      label: ':trivy: security scan'
+      command: trivy fs .
+      retry:
+        automatic:
+        - limit: 2
+          exit_status: -1
+        - limit: 2
+          exit_status: 18
+        - limit: 2
+          exit_status: 53
+        - limit: 2
+          exit_status: 125
+        - limit: 2
+          exit_status: 128
+        - limit: 2
+          exit_status: 143
+        - limit: 2
+          exit_status: 255
+        - limit: 2
+          exit_status: 1
+      plugins:
+        - docker-compose#v5.3.0:
+            run: app
+  - key: build-release-snapshot
+    env: 
+      CGO_ENABLED: 0
+      TESTING_ENV: ci
+    label: ':golang: build'
+    command: goreleaser build --snapshot --clean --single-target
+    retry:
+      automatic:
+      - limit: 2
+        exit_status: -1
+      - limit: 2
+        exit_status: 18
+      - limit: 2
+        exit_status: 53
+      - limit: 2
+        exit_status: 125
+      - limit: 2
+        exit_status: 128
+      - limit: 2
+        exit_status: 143
+      - limit: 2
+        exit_status: 255
+      - limit: 2
+        exit_status: 1    
+    artifact_paths:
+      - 'dist/**/*'
+    plugins:
+      - docker-compose#v5.3.0:
+          run: app
+    depends_on: quality-assurance
