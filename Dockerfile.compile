@@ -1,5 +1,5 @@
-FROM public.ecr.aws/docker/library/golang:1.22.5@sha256:86a3c48a61915a8c62c0e1d7594730399caa3feb73655dfe96c7bc17710e96cf
+FROM public.ecr.aws/docker/library/golang:1.23.1@sha256:2fe82a3f3e006b4f2a316c6a21f62b66e1330ae211d039bb8d1128e12ed57bf1
 
-COPY --from=golangci/golangci-lint:v1.59.1@sha256:b5f8712114561f1e2fbe74d04ed07ddfd992768705033a6251f3c7b848eac38e /usr/bin/golangci-lint /usr/local/bin/golangci-lint
-COPY --from=goreleaser/goreleaser:v2.1.0@sha256:fa57c33ac09284215cdd85f65238cc35daa6f516167f4568bebc6d9426f7508a /usr/bin/goreleaser /usr/local/bin/goreleaser
+COPY --from=golangci/golangci-lint:v1.61@sha256:e47065d755ca0afeac9df866d1dabdc99f439653a43fe234e05f50d9c36b6b90 /usr/bin/golangci-lint /usr/local/bin/golangci-lint
+COPY --from=goreleaser/goreleaser:v2.3.2@sha256:d62b4a18dfe3af7bd4da9e5954b496548ef04e73ae8f98cd75ba63a9ed4d73e5 /usr/bin/goreleaser /usr/local/bin/goreleaser
 COPY --from=aquasec/trivy:0.54.1@sha256:e654e95e0753d2daeb4d5b1c2791eee6a1262c7e002770511d773c02a898c73b /usr/local/bin/trivy /usr/local/bin/trivy
