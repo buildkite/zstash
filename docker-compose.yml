@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.compile
+    volumes:
+      - ./:/work:cached
+      - ~/gocache:/gocache
+      - ~/gomodcache:/gomodcache
+    working_dir: /work
+    environment:
+      - BUILDKITE_BUILD_NUMBER
+      - BUILDKITE_COMMIT
+      - GOCACHE=/gocache
+      - GOMODCACHE=/gomodcache
