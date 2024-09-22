@@ -6,7 +6,10 @@ import (
 	"time"
 
 	"github.com/alecthomas/kong"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
 	"github.com/buildkite/zstash/internal/commands"
+	"github.com/buildkite/zstash/internal/trace"
 )
 
 var (
@@ -24,6 +27,20 @@ func main() {
 
 	ctx := context.Background()
 
+	exp, err := trace.NewExporter(ctx)
+	if err != nil {
+		log.Fatalf("failed to create trace exporter: %v", err)
+	}
+
+	tp := trace.NewProvider("github.com/buildkite/zstash", exp)
+	defer func() {
+		_ = tp.Shutdown(ctx)
+	}()
+
+	var span oteltrace.Span
+	ctx, span = trace.Start(ctx, "zstash")
+	defer span.End()
+
 	start := time.Now()
 
 	cmd := kong.Parse(&cli,
@@ -31,7 +48,8 @@ func main() {
 			"version": version,
 		},
 		kong.BindTo(ctx, (*context.Context)(nil)))
-	err := cmd.Run(&commands.Globals{Debug: cli.Debug})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug})
+	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
 	log.Printf("operation completed duration=%s", time.Since(start))
