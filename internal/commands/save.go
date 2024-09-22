@@ -14,6 +14,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/mholt/archiver/v4"
 
+	"github.com/buildkite/zstash/internal/trace"
 	"github.com/buildkite/zstash/pkg/key"
 	"github.com/buildkite/zstash/pkg/store"
 )
@@ -28,10 +29,15 @@ type SaveCmd struct {
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
+	ctx, span := trace.Start(ctx, "SaveCmdRun")
+	defer span.End()
+
 	key, err := key.Resolve(cmd.Key)
 	if err != nil {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
+
+	log.Printf("Saving key=%s", key)
 
 	format := archiver.CompressedArchive{
 		Compression: archiver.Zstd{
@@ -42,7 +48,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		Archival: archiver.Tar{},
 	}
 
-	files, err := buildFilesFromDisk(cmd.Paths)
+	files, err := buildFilesFromDisk(ctx, cmd.Paths)
 	if err != nil {
 		return fmt.Errorf("failed to build files from disk: %w", err)
 	}
@@ -71,8 +77,9 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func buildFilesFromDisk(paths []string) ([]archiver.File, error) {
-
+func buildFilesFromDisk(ctx context.Context, paths []string) ([]archiver.File, error) {
+	_, span := trace.Start(ctx, "buildFilesFromDisk")
+	defer span.End()
 	start := time.Now()
 
 	fm := map[string]string{}
@@ -96,6 +103,9 @@ func buildOutputPath(localCachePath, key string, format archiver.CompressedArchi
 }
 
 func saveArchive(ctx context.Context, format archiver.CompressedArchive, files []archiver.File, outputPath string) (string, error) {
+	ctx, span := trace.Start(ctx, "saveArchive")
+	defer span.End()
+
 	start := time.Now()
 
 	out, err := os.Create(outputPath)

@@ -3,7 +3,11 @@ package store
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
+
+	"github.com/buildkite/zstash/internal/trace"
 )
 
 var (
@@ -55,4 +59,18 @@ func Upload(ctx context.Context, remoteCacheURL, path, sha256sum string, expires
 	default:
 		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
+}
+
+func transferFile(ctx context.Context, path string, rdr io.Reader) (n int64, err error) {
+	_, span := trace.Start(ctx, "transferFile")
+	defer span.End()
+
+	f, err := os.Create(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file: %w", err)
+	}
+
+	defer f.Close()
+
+	return f.ReadFrom(rdr)
 }

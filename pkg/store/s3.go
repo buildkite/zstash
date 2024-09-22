@@ -16,6 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
+
+	"github.com/buildkite/zstash/internal/trace"
 )
 
 type S3Store struct {
@@ -28,6 +31,9 @@ func NewS3Store() (*S3Store, error) {
 		return nil, fmt.Errorf("failed to load sdk config: %w", err)
 	}
 
+	// instrument all aws clients
+	otelaws.AppendMiddlewares(&sdkConfig.APIOptions)
+
 	// Create an Amazon S3 service client
 	client := s3.NewFromConfig(sdkConfig)
 
@@ -35,6 +41,9 @@ func NewS3Store() (*S3Store, error) {
 }
 
 func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum string) error {
+	ctx, span := trace.Start(ctx, "S3Store.Download")
+	defer span.End()
+
 	u, err := url.Parse(remoteCacheURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
@@ -59,17 +68,11 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 
 		return fmt.Errorf("failed to get object: %w", err)
 	}
+	defer getObj.Body.Close()
 
 	log.Printf("Saving to path=%s", path)
 
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
-	}
-
-	defer f.Close()
-
-	n, err := f.ReadFrom(getObj.Body)
+	n, err := transferFile(ctx, path, getObj.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read from body: %w", err)
 	}
@@ -80,6 +83,9 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 }
 
 func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum string, expiresInSecs int64) error {
+	ctx, span := trace.Start(ctx, "S3Store.Upload")
+	defer span.End()
+
 	start := time.Now()
 
 	u, err := url.Parse(remoteCacheURL)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/mholt/archiver/v4"
 
+	"github.com/buildkite/zstash/internal/trace"
 	"github.com/buildkite/zstash/pkg/key"
 	"github.com/buildkite/zstash/pkg/store"
 )
@@ -24,6 +25,9 @@ type RestoreCmd struct {
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
+	ctx, span := trace.Start(ctx, "RestoreCmdRun")
+	defer span.End()
+
 	format := archiver.CompressedArchive{
 		Compression: archiver.Zstd{},
 		Archival:    archiver.Tar{},
@@ -52,9 +56,9 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 				return nil // there was no fall back cache key so we
 			}
 
-			log.Fatalf("Failed to download file: %v", err)
-
-			return nil // we can't restore
+			// we can't restore the cache
+			// TODO: we may want to ignore this error and continue if we have a fallback key
+			return fmt.Errorf("failed to download cache file: %w", err)
 		}
 
 		// we downloaded the cache from the remote cache and can now restore it
@@ -63,13 +67,20 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 	log.Printf("Extracting to archive=%s paths=%q", outputPath, cmd.Paths)
 
+	return extractArchive(ctx, format, outputPath, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug))
+}
+
+func extractArchive(ctx context.Context, format archiver.CompressedArchive, outputPath string, paths []string, handler archiver.FileHandler) error {
+	ctx, span := trace.Start(ctx, "extractArchive")
+	defer span.End()
+
 	f, err := os.Open(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer f.Close()
 
-	err = format.Extract(ctx, f, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug))
+	err = format.Extract(ctx, f, paths, handler)
 	if err != nil {
 		return fmt.Errorf("failed to archive: %w", err)
 	}
