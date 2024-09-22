@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -12,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3Store struct {
@@ -30,7 +34,7 @@ func NewS3Store() (*S3Store, error) {
 	return &S3Store{client: client}, nil
 }
 
-func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path string) error {
+func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum string) error {
 	u, err := url.Parse(remoteCacheURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
@@ -66,19 +70,20 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path string) err
 	return nil
 }
 
-func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path string, expiresInSecs int64) error {
+func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum string, expiresInSecs int64) error {
+	start := time.Now()
+
 	u, err := url.Parse(remoteCacheURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
 	}
 
-	sdkConfig, err := config.LoadDefaultConfig(context.TODO())
+	rawSum, err := hex.DecodeString(sha256sum)
 	if err != nil {
-		return fmt.Errorf("failed to load sdk config: %w", err)
+		return fmt.Errorf("failed to decode sha256sum: %w", err)
 	}
 
-	// Create an Amazon S3 service client
-	client := s3.NewFromConfig(sdkConfig)
+	base64Sum := base64.StdEncoding.EncodeToString(rawSum)
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -90,19 +95,39 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path string, expir
 		return fmt.Errorf("failed to join path: %w", err)
 	}
 
+	headRes, err := s.client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+		Bucket:       aws.String(u.Host),
+		Key:          aws.String(remotePath),
+		ChecksumMode: types.ChecksumModeEnabled,
+	})
+	if err != nil {
+		var notFoundErr *types.NotFound
+		if !errors.As(err, &notFoundErr) {
+			return fmt.Errorf("failed to head object: %w", err)
+		}
+	}
+	if err == nil {
+		log.Printf("Headed s3 bucket=%s key=%s sha256sum=%s", u.Host, remotePath, aws.ToString(headRes.ChecksumSHA256))
+
+		if aws.ToString(headRes.ChecksumSHA256) == base64Sum {
+			log.Printf("File already exists in s3 bucket=%s key=%s sha256sum=%s", u.Host, remotePath, sha256sum)
+			return nil
+		}
+	}
+
 	// Upload the file to the S3 bucket
-	putRes, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:  aws.String(u.Host),
-		Key:     aws.String(remotePath),
-		Body:    f,
-		Expires: aws.Time(time.Now().Add(time.Duration(expiresInSecs) * time.Second)),
+	putRes, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:         aws.String(u.Host),
+		Key:            aws.String(remotePath),
+		Body:           f,
+		Expires:        aws.Time(time.Now().Add(time.Duration(expiresInSecs) * time.Second)),
+		ChecksumSHA256: aws.String(base64Sum),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload file to s3: %w", err)
 	}
 
-	log.Printf("Uploaded to s3 bucket=%s key=%s etag=%s", u.Host, remotePath, aws.ToString(putRes.ETag))
+	log.Printf("Uploaded to s3 bucket=%s key=%s etag=%s sha256sum=%s duration=%s", u.Host, remotePath, aws.ToString(putRes.ETag), sha256sum, time.Since(start))
 
 	return nil
-
 }

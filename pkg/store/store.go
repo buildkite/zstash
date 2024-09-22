@@ -7,12 +7,12 @@ import (
 )
 
 type Store interface {
-	Download(ctx context.Context, remoteCacheURL, path string) error
-	Upload(ctx context.Context, remoteCacheURL, path string, expiresInSecs int64) error
+	Download(ctx context.Context, remoteCacheURL, path, sha256sum string) error
+	Upload(ctx context.Context, remoteCacheURL, path string, sha256sum, expiresInSecs int64) error
 }
 
 // Download downloads a file from a remote cache URL to a local path.
-func Download(ctx context.Context, remoteCacheURL, path string) error {
+func Download(ctx context.Context, remoteCacheURL, path, sha256sum string) error {
 
 	u, err := url.Parse(remoteCacheURL)
 	if err != nil {
@@ -26,14 +26,14 @@ func Download(ctx context.Context, remoteCacheURL, path string) error {
 			return fmt.Errorf("failed to create s3 store: %w", err)
 		}
 
-		return s3Store.Download(ctx, remoteCacheURL, path)
+		return s3Store.Download(ctx, remoteCacheURL, sha256sum, path)
 	default:
 		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
 }
 
 // Upload uploads a file from a local path to a remote cache URL.
-func Upload(ctx context.Context, remoteCacheURL, path string, expiresInSecs int64) error {
+func Upload(ctx context.Context, remoteCacheURL, path, sha256sum string, expiresInSecs int64) error {
 
 	u, err := url.Parse(remoteCacheURL)
 	if err != nil {
@@ -47,7 +47,7 @@ func Upload(ctx context.Context, remoteCacheURL, path string, expiresInSecs int6
 			return fmt.Errorf("failed to create s3 store: %w", err)
 		}
 
-		return s3Store.Upload(ctx, remoteCacheURL, path, expiresInSecs)
+		return s3Store.Upload(ctx, remoteCacheURL, path, sha256sum, expiresInSecs)
 	default:
 		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}

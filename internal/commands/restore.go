@@ -37,7 +37,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 			return nil // there was no fall back cache key so we can't restore
 		}
 
-		err = store.Download(ctx, cmd.RemoteCacheURL, outputPath)
+		err = store.Download(ctx, cmd.RemoteCacheURL, outputPath, "") // we don't have a sha256sum
 		if err != nil {
 			if globals.Debug {
 				log.Printf("Failed to download file: %v", err)
