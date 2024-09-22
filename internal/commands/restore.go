@@ -8,10 +8,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 
-	"github.com/buildkite/zstash/pkg/store"
 	"github.com/mholt/archiver/v4"
+
+	"github.com/buildkite/zstash/pkg/key"
+	"github.com/buildkite/zstash/pkg/store"
 )
 
 type RestoreCmd struct {
@@ -28,23 +29,36 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Archival:    archiver.Tar{},
 	}
 
-	outputPath := filepath.Join(cmd.LocalCachePath, fmt.Sprintf("%s%s%s", cmd.Key, format.Archival.Name(), format.Compression.Name()))
+	key, err := key.Resolve(cmd.Key)
+	if err != nil {
+		return fmt.Errorf("failed to resolve key: %w", err)
+	}
+
+	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
 
 	// does the cache exist locally?
 	if _, err := os.Stat(outputPath); errors.Is(err, os.ErrNotExist) {
+
+		log.Printf("Cache not found locally, trying to download from remote cache")
 
 		if cmd.RemoteCacheURL == "" {
 			return nil // there was no fall back cache key so we can't restore
 		}
 
-		err = store.Download(ctx, cmd.RemoteCacheURL, outputPath)
+		err = store.Download(ctx, cmd.RemoteCacheURL, outputPath, "") // we don't have a sha256sum
 		if err != nil {
-			if globals.Debug {
-				log.Printf("Failed to download file: %v", err)
+			if errors.Is(err, store.ErrNotFound) {
+				log.Printf("No cache found locally, and no cache to download from remote cache")
+				return nil // there was no fall back cache key so we
 			}
-			return nil // there was no fall back cache key so we can't restore
+
+			log.Fatalf("Failed to download file: %v", err)
+
+			return nil // we can't restore
 		}
 
+		// we downloaded the cache from the remote cache and can now restore it
+		log.Printf("Downloaded cache from remote cache to local cache=%s", outputPath)
 	}
 
 	log.Printf("Extracting to archive=%s paths=%q", outputPath, cmd.Paths)
@@ -55,12 +69,22 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	}
 	defer f.Close()
 
-	handler := func(ctx context.Context, file archiver.File) error {
-		if globals.Debug {
+	err = format.Extract(ctx, f, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug))
+	if err != nil {
+		return fmt.Errorf("failed to archive: %w", err)
+	}
+
+	return nil
+}
+
+func fileHandler(restorePath string, debug bool) archiver.FileHandler {
+
+	return func(ctx context.Context, file archiver.File) error {
+		if debug {
 			log.Printf("Extracting name=%s dir=%v", file.NameInArchive, file.IsDir())
 		}
 
-		path := filepath.Join(cmd.RestorePath, file.NameInArchive)
+		path := filepath.Join(restorePath, file.NameInArchive)
 
 		if file.IsDir() {
 			err := os.MkdirAll(path, file.Mode())
@@ -68,7 +92,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 				log.Printf("Failed to create directory: %v", err)
 			}
 
-			if globals.Debug {
+			if debug {
 				log.Printf("Creating directory name=%s", path)
 			}
 
@@ -84,14 +108,14 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 				}
 			}
 
-			if globals.Debug {
+			if debug {
 				log.Printf("Creating link name=%s target=%s", path, file.LinkTarget)
 			}
 
 			return nil // we are done
 		}
 
-		start := time.Now()
+		// start := time.Now()
 
 		f, err := file.Open()
 		if err != nil {
@@ -110,17 +134,10 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 			return err
 		}
 
-		defer func(start time.Time, path string) {
-			log.Printf("Extracted path=%s in=%s", path, time.Since(start))
-		}(start, path)
+		// defer func(start time.Time, path string) {
+		// 	log.Printf("Extracted path=%s in=%s", path, time.Since(start))
+		// }(start, path)
 
 		return nil
 	}
-
-	err = format.Extract(ctx, f, cmd.Paths, handler)
-	if err != nil {
-		return fmt.Errorf("failed to archive: %w", err)
-	}
-
-	return nil
 }

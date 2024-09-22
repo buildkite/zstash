@@ -34,5 +34,5 @@ func main() {
 	err := cmd.Run(&commands.Globals{Debug: cli.Debug})
 	cmd.FatalIfErrorf(err)
 
-	log.Println("total time elapsed:", time.Since(start))
+	log.Printf("operation completed duration=%s", time.Since(start))
 }

@@ -23,7 +23,7 @@ Flags:
       --local-cache-path=STRING    Local cache path ($LOCAL_CACHE_PATH).
       --remote-cache-url=STRING    Remote cache URL ($REMOTE_CACHE_URL).
       --expires-in-secs=86400      Expires in seconds.
-      --encoder-concurrency=8      Encoder concurrency.
+      --encoder-concurrency=8      Zstd Encoder concurrency.
 ```
 
 Restore usage.
