@@ -45,15 +45,24 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 		return fmt.Errorf("failed to join path: %w", err)
 	}
 
+	log.Printf("Downloading from s3 bucket=%s key=%s", u.Host, remotePath)
+
 	getObj, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(u.Host),
 		Key:    aws.String(remotePath),
 	})
 	if err != nil {
+		var notFoundErr *types.NoSuchKey
+		if errors.As(err, &notFoundErr) {
+			return ErrNotFound
+		}
+
 		return fmt.Errorf("failed to get object: %w", err)
 	}
 
-	f, err := os.Open(path)
+	log.Printf("Saving to path=%s", path)
+
+	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
