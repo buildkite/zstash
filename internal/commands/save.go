@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -55,6 +56,8 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
 
+	log.Printf("Saving outputPath=%s", outputPath)
+
 	err = os.MkdirAll(filepath.Dir(outputPath), 0755)
 	if err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -68,7 +71,12 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	if cmd.RemoteCacheURL != "" {
 		log.Printf("Uploading to remote cache url=%s expires-in-secs=%d", cmd.RemoteCacheURL, cmd.ExpiresInSecs)
 
-		err = store.Upload(ctx, cmd.RemoteCacheURL, outputPath, sha256sum, cmd.ExpiresInSecs)
+		remoteURL, err := url.JoinPath(cmd.RemoteCacheURL, fmt.Sprintf("%s%s", key, format.Name()))
+		if err != nil {
+			return fmt.Errorf("failed to build remote url: %w", err)
+		}
+
+		err = store.Upload(ctx, remoteURL, outputPath, sha256sum, cmd.ExpiresInSecs)
 		if err != nil {
 			return fmt.Errorf("failed to upload to remote cache: %w", err)
 		}
