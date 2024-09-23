@@ -17,6 +17,7 @@ import (
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/buildkite/zstash/pkg/key"
+	"github.com/buildkite/zstash/pkg/paths"
 	"github.com/buildkite/zstash/pkg/store"
 )
 
@@ -85,18 +86,25 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func buildFilesFromDisk(ctx context.Context, paths []string) ([]archiver.File, error) {
+func buildFilesFromDisk(ctx context.Context, filepaths []string) ([]archiver.File, error) {
 	_, span := trace.Start(ctx, "buildFilesFromDisk")
 	defer span.End()
 	start := time.Now()
 
-	fm := map[string]string{}
-
-	for _, path := range paths {
-		fm[path] = "" // TODO: add option to override the path in the archive
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	files, err := archiver.FilesFromDisk(nil, fm)
+	filenames := map[string]string{}
+
+	for _, p := range filepaths {
+		filenames[p] = paths.RelPathCheck(dir, p) // TODO: add option to override the path in the archive
+	}
+
+	log.Printf("Built file path mappings for archive paths=%q", filenames)
+
+	files, err := archiver.FilesFromDisk(nil, filenames)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get files from disk: %w", err)
 	}
