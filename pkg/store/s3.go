@@ -9,11 +9,11 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
@@ -21,6 +21,7 @@ import (
 	"github.com/buildkite/zstash/internal/trace"
 )
 
+// S3Store is a store that uses the S3 API with the s3:// scheme, it uses async multipart upload API and download.
 type S3Store struct {
 	client *s3.Client
 }
@@ -49,35 +50,28 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
 	}
 
-	remotePath, err := url.JoinPath(u.Path, filepath.Base(path))
+	log.Printf("Downloading from s3 bucket url=%s", remoteCacheURL)
+
+	downloadFile, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("failed to join path: %w", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 
-	log.Printf("Downloading from s3 bucket=%s key=%s", u.Host, remotePath)
+	defer downloadFile.Close()
 
-	getObj, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+	downloader := manager.NewDownloader(s.client)
+	n, err := downloader.Download(ctx, downloadFile, &s3.GetObjectInput{
 		Bucket: aws.String(u.Host),
-		Key:    aws.String(remotePath),
+		Key:    aws.String(u.Path),
 	})
 	if err != nil {
 		var notFoundErr *types.NoSuchKey
 		if errors.As(err, &notFoundErr) {
 			return ErrNotFound
 		}
-
-		return fmt.Errorf("failed to get object: %w", err)
-	}
-	defer getObj.Body.Close()
-
-	log.Printf("Saving to path=%s", path)
-
-	n, err := transferFile(ctx, path, getObj.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read from body: %w", err)
 	}
 
-	log.Printf("Downloaded from s3 bucket=%s key=%s size=%d", u.Host, remotePath, n)
+	log.Printf("Downloaded from s3 bucket url=%s size=%d", remoteCacheURL, n)
 
 	return nil
 }
@@ -105,14 +99,9 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 
-	remotePath, err := url.JoinPath(u.Path, filepath.Base(path))
-	if err != nil {
-		return fmt.Errorf("failed to join path: %w", err)
-	}
-
-	headRes, err := s.client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+	headRes, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket:       aws.String(u.Host),
-		Key:          aws.String(remotePath),
+		Key:          aws.String(u.Path),
 		ChecksumMode: types.ChecksumModeEnabled,
 	})
 	if err != nil {
@@ -122,18 +111,18 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 		}
 	}
 	if err == nil {
-		log.Printf("Headed s3 bucket=%s key=%s sha256sum=%s", u.Host, remotePath, aws.ToString(headRes.ChecksumSHA256))
+		log.Printf("Headed s3 bucket url=%s sha256sum=%s", remoteCacheURL, aws.ToString(headRes.ChecksumSHA256))
 
 		if aws.ToString(headRes.ChecksumSHA256) == base64Sum {
-			log.Printf("File already exists in s3 bucket=%s key=%s sha256sum=%s", u.Host, remotePath, sha256sum)
+			log.Printf("File already exists in s3 bucket url=%s sha256sum=%s", remoteCacheURL, sha256sum)
 			return nil
 		}
 	}
 
-	// Upload the file to the S3 bucket
-	putRes, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	uploader := manager.NewUploader(s.client)
+	uploadRes, err := uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket:         aws.String(u.Host),
-		Key:            aws.String(remotePath),
+		Key:            aws.String(u.Path),
 		Body:           f,
 		Expires:        aws.Time(time.Now().Add(time.Duration(expiresInSecs) * time.Second)),
 		ChecksumSHA256: aws.String(base64Sum),
@@ -142,7 +131,7 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 		return fmt.Errorf("failed to upload file to s3: %w", err)
 	}
 
-	log.Printf("Uploaded to s3 bucket=%s key=%s etag=%s sha256sum=%s duration=%s", u.Host, remotePath, aws.ToString(putRes.ETag), sha256sum, time.Since(start))
+	log.Printf("Uploaded to s3 bucket url=%s etag=%s sha256sum=%s duration=%s", remoteCacheURL, aws.ToString(uploadRes.ETag), sha256sum, time.Since(start))
 
 	return nil
 }

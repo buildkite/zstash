@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -38,6 +39,8 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
 
+	log.Printf("Restore key=%s", key)
+
 	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
 
 	// does the cache exist locally?
@@ -49,7 +52,14 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 			return nil // there was no fall back cache key so we can't restore
 		}
 
-		err = store.Download(ctx, cmd.RemoteCacheURL, outputPath, "") // we don't have a sha256sum
+		remoteURL, err := url.JoinPath(cmd.RemoteCacheURL, fmt.Sprintf("%s%s", key, format.Name()))
+		if err != nil {
+			return fmt.Errorf("failed to build remote url: %w", err)
+		}
+
+		log.Printf("Download url=%s", remoteURL)
+
+		err = store.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				log.Printf("No cache found locally, and no cache to download from remote cache")
