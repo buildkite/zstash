@@ -31,6 +31,8 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "RestoreCmdRun")
 	defer span.End()
 
+	log.Printf("Restore version=%s", globals.Version)
+
 	format := archiver.CompressedArchive{
 		Compression: archiver.Zstd{},
 		Archival:    archiver.Tar{},
@@ -41,6 +43,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
 
+	span.SetAttributes(attribute.String("key", cmd.Key))
 	log.Printf("Restore key=%s", key)
 
 	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)

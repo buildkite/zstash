@@ -48,7 +48,7 @@ func main() {
 			"version": version,
 		},
 		kong.BindTo(ctx, (*context.Context)(nil)))
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
