@@ -2,6 +2,7 @@ package trace
 
 import (
 	"context"
+	"io"
 	"os"
 
 	"go.opentelemetry.io/otel"
@@ -60,7 +61,9 @@ func NewExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
 	case "grpc":
 		clientOTel := otlptracegrpc.NewClient()
 		return otlptrace.New(ctx, clientOTel)
-	default:
+	case "stdout":
 		return stdouttrace.New()
+	default:
+		return stdouttrace.New(stdouttrace.WithWriter(io.Discard))
 	}
 }

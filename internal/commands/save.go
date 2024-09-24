@@ -14,6 +14,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/klauspost/compress/zstd"
 	"github.com/mholt/archiver/v4"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/buildkite/zstash/pkg/key"
@@ -35,12 +36,15 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "SaveCmdRun")
 	defer span.End()
 
+	log.Printf("Save version=%s", globals.Version)
+
 	key, err := key.Resolve(cmd.Key, cmd.Paths)
 	if err != nil {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
 
 	log.Printf("Saving key=%s", key)
+	span.SetAttributes(attribute.String("key", cmd.Key))
 
 	format := archiver.CompressedArchive{
 		Compression: archiver.Zstd{
