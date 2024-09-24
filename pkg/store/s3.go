@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -50,7 +51,12 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
 	}
 
-	log.Printf("Downloading from s3 bucket url=%s", remoteCacheURL)
+	log.Printf("Downloading from s3 bucket to file url=%s path=%s", remoteCacheURL, path)
+
+	err = os.MkdirAll(filepath.Dir(path), 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
 
 	downloadFile, err := os.Create(path)
 	if err != nil {
