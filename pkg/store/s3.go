@@ -2,14 +2,13 @@ package store
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -70,7 +69,7 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 	downloader := manager.NewDownloader(s.client)
 	n, err := downloader.Download(ctx, downloadFile, &s3.GetObjectInput{
 		Bucket: aws.String(u.Host),
-		Key:    aws.String(u.Path),
+		Key:    aws.String(strings.TrimPrefix(u.Path, "/")), // remove leading /
 	})
 	if err != nil {
 		var notFoundErr *types.NoSuchKey
@@ -95,22 +94,14 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
 	}
 
-	rawSum, err := hex.DecodeString(sha256sum)
-	if err != nil {
-		return fmt.Errorf("failed to decode sha256sum: %w", err)
-	}
-
-	base64Sum := base64.StdEncoding.EncodeToString(rawSum)
-
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 
 	headRes, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket:       aws.String(u.Host),
-		Key:          aws.String(u.Path),
-		ChecksumMode: types.ChecksumModeEnabled,
+		Bucket: aws.String(u.Host),
+		Key:    aws.String(strings.TrimPrefix(u.Path, "/")), // remove leading /
 	})
 	if err != nil {
 		var notFoundErr *types.NotFound
@@ -119,9 +110,9 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 		}
 	}
 	if err == nil {
-		log.Printf("Headed s3 bucket url=%s sha256sum=%s", remoteCacheURL, aws.ToString(headRes.ChecksumSHA256))
+		log.Printf("Headed s3 bucket url=%s sha256sum=%s", remoteCacheURL, headRes.Metadata["sha256sum"])
 
-		if aws.ToString(headRes.ChecksumSHA256) == base64Sum {
+		if headRes.Metadata["sha256sum"] == sha256sum {
 			log.Printf("File already exists in s3 bucket url=%s sha256sum=%s", remoteCacheURL, sha256sum)
 			return nil
 		}
@@ -129,11 +120,13 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 
 	uploader := manager.NewUploader(s.client)
 	uploadRes, err := uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket:         aws.String(u.Host),
-		Key:            aws.String(u.Path),
-		Body:           f,
-		Expires:        aws.Time(time.Now().Add(time.Duration(expiresInSecs) * time.Second)),
-		ChecksumSHA256: aws.String(base64Sum),
+		Bucket:  aws.String(u.Host),
+		Key:     aws.String(strings.TrimPrefix(u.Path, "/")), // remove leading /
+		Body:    f,
+		Expires: aws.Time(time.Now().Add(time.Duration(expiresInSecs) * time.Second)),
+		Metadata: map[string]string{
+			"sha256sum": sha256sum,
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload file to s3: %w", err)
