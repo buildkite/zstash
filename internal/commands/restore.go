@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/mholt/archiver/v4"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/buildkite/zstash/pkg/key"
@@ -35,7 +36,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Archival:    archiver.Tar{},
 	}
 
-	key, err := key.Resolve(cmd.Key)
+	key, err := key.Resolve(cmd.Key, cmd.Paths)
 	if err != nil {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
@@ -68,7 +69,9 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		err = st.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				log.Printf("No cache found locally, and no cache to download from remote cache")
+				span.SetAttributes(attribute.Bool("cache.hit", false))
+				log.Printf("CACHE MISS ❌ no cache found locally, and no cache to download from remote cache")
+
 				return nil // there was no fall back cache key so we
 			}
 
@@ -81,7 +84,8 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		log.Printf("Downloaded cache from remote cache to local cache=%s", outputPath)
 	}
 
-	log.Printf("Extracting to archive=%s paths=%q", outputPath, cmd.Paths)
+	span.SetAttributes(attribute.Bool("cache.hit", true))
+	log.Printf("CACHE HIT ✅ to archive=%s paths=%q", outputPath, cmd.Paths)
 
 	return extractArchive(ctx, format, outputPath, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug))
 }
