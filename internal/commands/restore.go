@@ -35,7 +35,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Archival:    archiver.Tar{},
 	}
 
-	key, err := key.Resolve(cmd.Key)
+	key, err := key.Resolve(cmd.Key, cmd.Paths)
 	if err != nil {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}

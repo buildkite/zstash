@@ -35,7 +35,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "SaveCmdRun")
 	defer span.End()
 
-	key, err := key.Resolve(cmd.Key)
+	key, err := key.Resolve(cmd.Key, cmd.Paths)
 	if err != nil {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
