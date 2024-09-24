@@ -74,6 +74,12 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 	if err != nil {
 		var notFoundErr *types.NoSuchKey
 		if errors.As(err, &notFoundErr) {
+
+			log.Printf("File not found in s3 bucket url=%s", remoteCacheURL)
+			// cleanup the empty file
+			_ = downloadFile.Close()
+			_ = os.Remove(path)
+
 			return ErrNotFound
 		}
 	}
