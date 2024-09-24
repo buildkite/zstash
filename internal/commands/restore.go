@@ -22,6 +22,7 @@ type RestoreCmd struct {
 	LocalCachePath string   `flag:"local-cache-path" help:"Local cache path." env:"LOCAL_CACHE_PATH"`
 	RestorePath    string   `flag:"restore-path" help:"Path to restore." default:"." env:"RESTORE_PATH"`
 	RemoteCacheURL string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
+	UseAccelerate  bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
 	Paths          []string `arg:"" name:"path" help:"Paths within the cache archive to restore to the restore path."`
 }
 
@@ -59,7 +60,12 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 		log.Printf("Download url=%s", remoteURL)
 
-		err = store.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
+		st, err := store.NewS3Store(cmd.UseAccelerate)
+		if err != nil {
+			return fmt.Errorf("failed to create s3 store: %w", err)
+		}
+
+		err = st.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				log.Printf("No cache found locally, and no cache to download from remote cache")

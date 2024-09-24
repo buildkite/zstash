@@ -27,6 +27,7 @@ type SaveCmd struct {
 	RemoteCacheURL     string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
 	ExpiresInSecs      int64    `flag:"expires-in-secs" help:"Expires in seconds." default:"86400"`
 	EncoderConcurrency int      `flag:"encoder-concurrency" help:"Zstd Encoder concurrency." default:"8"`
+	UseAccelerate      bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
 	Paths              []string `arg:"" name:"path" help:"Paths to remove." type:"path"`
 }
 
@@ -77,7 +78,12 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 			return fmt.Errorf("failed to build remote url: %w", err)
 		}
 
-		err = store.Upload(ctx, remoteURL, outputPath, sha256sum, cmd.ExpiresInSecs)
+		st, err := store.NewS3Store(cmd.UseAccelerate)
+		if err != nil {
+			return fmt.Errorf("failed to create s3 store: %w", err)
+		}
+
+		err = st.Upload(ctx, remoteURL, outputPath, sha256sum, cmd.ExpiresInSecs)
 		if err != nil {
 			return fmt.Errorf("failed to upload to remote cache: %w", err)
 		}

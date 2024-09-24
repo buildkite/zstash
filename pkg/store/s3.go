@@ -27,7 +27,7 @@ type S3Store struct {
 	client *s3.Client
 }
 
-func NewS3Store() (*S3Store, error) {
+func NewS3Store(accelerate bool) (*S3Store, error) {
 	sdkConfig, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load sdk config: %w", err)
@@ -37,7 +37,9 @@ func NewS3Store() (*S3Store, error) {
 	otelaws.AppendMiddlewares(&sdkConfig.APIOptions)
 
 	// Create an Amazon S3 service client
-	client := s3.NewFromConfig(sdkConfig)
+	client := s3.NewFromConfig(sdkConfig, func(o *s3.Options) {
+		o.UseAccelerate = accelerate
+	})
 
 	return &S3Store{client: client}, nil
 }
