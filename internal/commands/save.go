@@ -58,13 +58,6 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
 
-	log.Printf("Saving outputPath=%s", outputPath)
-
-	err = os.MkdirAll(filepath.Dir(outputPath), 0755)
-	if err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
 	sha256sum, err := saveArchive(ctx, format, files, outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to save archive: %w", err)
@@ -129,6 +122,33 @@ func saveArchive(ctx context.Context, format archiver.CompressedArchive, files [
 	defer span.End()
 
 	start := time.Now()
+
+	// if the file already exists, we don't need to re-archive it
+	if _, err := os.Stat(outputPath); err == nil {
+
+		log.Printf("Archive already exists path=%s", outputPath)
+
+		out, err := os.Open(outputPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to open existing archive: %w", err)
+		}
+		defer out.Close()
+
+		sha256Hash := sha256.New()
+
+		if _, err := io.Copy(sha256Hash, out); err != nil {
+			return "", fmt.Errorf("failed to calculate sha256sum: %w", err)
+		}
+
+		return fmt.Sprintf("%x", sha256Hash.Sum(nil)), nil
+	}
+
+	err := os.MkdirAll(filepath.Dir(outputPath), 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	log.Printf("Creating archive outputPath=%s", outputPath)
 
 	out, err := os.Create(outputPath)
 	if err != nil {
