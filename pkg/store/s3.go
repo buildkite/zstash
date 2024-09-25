@@ -59,7 +59,10 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	downloadFile, err := os.Create(path)
+	// download to a temporary file first to avoid partial downloads if the download is interrupted
+	downloadPath := path + ".downloading"
+
+	downloadFile, err := os.Create(downloadPath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
@@ -74,14 +77,15 @@ func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum 
 	if err != nil {
 		var notFoundErr *types.NoSuchKey
 		if errors.As(err, &notFoundErr) {
-
 			log.Printf("File not found in s3 bucket url=%s", remoteCacheURL)
-			// cleanup the empty file
-			_ = downloadFile.Close()
-			_ = os.Remove(path)
-
 			return ErrNotFound
 		}
+	}
+
+	// move the downloaded file to the final path
+	err = os.Rename(downloadPath, path)
+	if err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
 	}
 
 	log.Printf("Downloaded from s3 bucket url=%s size=%d", remoteCacheURL, n)
