@@ -20,7 +20,6 @@ import (
 
 type RestoreCmd struct {
 	Key            string   `flag:"key" help:"Key to restore."`
-	LocalCachePath string   `flag:"local-cache-path" help:"Local cache path." env:"LOCAL_CACHE_PATH"`
 	RestorePath    string   `flag:"restore-path" help:"Path to restore." default:"." env:"RESTORE_PATH"`
 	RemoteCacheURL string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
 	UseAccelerate  bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
@@ -46,46 +45,47 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	span.SetAttributes(attribute.String("key", cmd.Key))
 	log.Printf("Restore key=%s", key)
 
-	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
-
-	// does the cache exist locally?
-	if _, err := os.Stat(outputPath); errors.Is(err, os.ErrNotExist) {
-
-		log.Printf("Cache not found locally, trying to download from remote cache")
-
-		if cmd.RemoteCacheURL == "" {
-			return nil // there was no fall back cache key so we can't restore
-		}
-
-		remoteURL, err := url.JoinPath(cmd.RemoteCacheURL, fmt.Sprintf("%s%s", key, format.Name()))
-		if err != nil {
-			return fmt.Errorf("failed to build remote url: %w", err)
-		}
-
-		log.Printf("Download url=%s", remoteURL)
-
-		st, err := store.NewS3Store(cmd.UseAccelerate)
-		if err != nil {
-			return fmt.Errorf("failed to create s3 store: %w", err)
-		}
-
-		err = st.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				span.SetAttributes(attribute.Bool("cache.hit", false))
-				log.Printf("CACHE MISS ❌ no cache found locally, and no cache to download from remote cache")
-
-				return nil // there was no fall back cache key so we
-			}
-
-			// we can't restore the cache
-			// TODO: we may want to ignore this error and continue if we have a fallback key
-			return fmt.Errorf("failed to download cache file: %w", err)
-		}
-
-		// we downloaded the cache from the remote cache and can now restore it
-		log.Printf("Downloaded cache from remote cache to local cache=%s", outputPath)
+	st, err := store.NewS3Store(cmd.UseAccelerate)
+	if err != nil {
+		return fmt.Errorf("failed to create s3 store: %w", err)
 	}
+
+	dname, err := os.MkdirTemp("", "zstash-restore")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer func(d string) {
+		_ = os.RemoveAll(d)
+	}(dname)
+
+	outputPath := buildOutputPath(dname, key, format)
+
+	remoteURL, err := url.JoinPath(cmd.RemoteCacheURL, fmt.Sprintf("%s%s", key, format.Name()))
+	if err != nil {
+		return fmt.Errorf("failed to build remote url: %w", err)
+	}
+
+	log.Printf("Download url=%s", remoteURL)
+
+	// check if the cache exists in the remote cache
+	_, ok, err := st.Exists(ctx, remoteURL, key)
+	if err != nil {
+		return fmt.Errorf("failed to check if cache exists: %w", err)
+	}
+
+	if !ok {
+		span.SetAttributes(attribute.Bool("cache.hit", false))
+		log.Printf("CACHE MISS ❌ no cache found in remote cache")
+		return nil
+	}
+
+	err = st.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
+	if err != nil {
+		return fmt.Errorf("failed to download cache file: %w", err)
+	}
+
+	// we downloaded the cache from the remote cache and can now restore it
+	log.Printf("Downloaded cache from remote cache to local cache=%s", outputPath)
 
 	span.SetAttributes(attribute.Bool("cache.hit", true))
 	log.Printf("CACHE HIT ✅ to archive=%s paths=%q", outputPath, cmd.Paths)

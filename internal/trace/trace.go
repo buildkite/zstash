@@ -2,7 +2,7 @@ package trace
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"os"
 
 	"go.opentelemetry.io/otel"
@@ -10,7 +10,10 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -21,9 +24,20 @@ type Provider struct {
 	tp *sdktrace.TracerProvider
 }
 
-func NewProvider(name string, exp sdktrace.SpanExporter) *Provider {
+func NewProvider(ctx context.Context, name, version string) (*Provider, error) {
+	exp, err := newExporter(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create exporter: %w", err)
+	}
+
+	res, err := newResource(ctx, name, version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
+		sdktrace.WithResource(res),
 	)
 	otel.SetTracerProvider(tp)
 
@@ -38,7 +52,7 @@ func NewProvider(name string, exp sdktrace.SpanExporter) *Provider {
 
 	globalProvider = &Provider{tp: tp}
 
-	return globalProvider
+	return globalProvider, nil
 }
 
 func (p *Provider) Tracer(name string) trace.Tracer {
@@ -53,8 +67,7 @@ func Start(ctx context.Context, name string) (context.Context, trace.Span) {
 	return tracer.Start(ctx, name)
 }
 
-func NewExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
-
+func newExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
 	exporter := os.Getenv("TRACE_EXPORTER")
 
 	switch exporter {
@@ -64,6 +77,24 @@ func NewExporter(ctx context.Context) (sdktrace.SpanExporter, error) {
 	case "stdout":
 		return stdouttrace.New()
 	default:
-		return stdouttrace.New(stdouttrace.WithWriter(io.Discard))
+		return tracetest.NewNoopExporter(), nil
 	}
+}
+
+func newResource(cxt context.Context, name, version string) (*resource.Resource, error) {
+	options := []resource.Option{
+		resource.WithSchemaURL(semconv.SchemaURL),
+	}
+	options = append(options, resource.WithHost())
+	options = append(options, resource.WithFromEnv())
+	options = append(options, resource.WithAttributes(
+		semconv.TelemetrySDKNameKey.String("otelconfig"),
+		semconv.TelemetrySDKLanguageGo,
+		semconv.TelemetrySDKVersionKey.String(version),
+	))
+
+	return resource.New(
+		cxt,
+		options...,
+	)
 }

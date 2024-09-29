@@ -43,6 +43,33 @@ func NewS3Store(accelerate bool) (*S3Store, error) {
 	return &S3Store{client: client}, nil
 }
 
+func (s *S3Store) Exists(ctx context.Context, remoteCacheURL, path string) (string, bool, error) {
+	ctx, span := trace.Start(ctx, "S3Store.Exists")
+	defer span.End()
+
+	u, err := url.Parse(remoteCacheURL)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
+	}
+
+	headRes, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(u.Host),
+		Key:    aws.String(strings.TrimPrefix(u.Path, "/")), // remove leading /
+	})
+	if err != nil {
+		var notFoundErr *types.NotFound
+		if errors.As(err, &notFoundErr) {
+			return "", false, nil
+		}
+
+		return "", false, fmt.Errorf("failed to head object: %w", err)
+	}
+
+	log.Printf("File exists in s3 bucket url=%s sha256sum=%s", remoteCacheURL, headRes.Metadata["sha256sum"])
+
+	return headRes.Metadata["sha256sum"], true, nil
+}
+
 func (s *S3Store) Download(ctx context.Context, remoteCacheURL, path, sha256sum string) error {
 	ctx, span := trace.Start(ctx, "S3Store.Download")
 	defer span.End()
@@ -97,8 +124,6 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 	ctx, span := trace.Start(ctx, "S3Store.Upload")
 	defer span.End()
 
-	start := time.Now()
-
 	u, err := url.Parse(remoteCacheURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse remote cache url=%s", remoteCacheURL)
@@ -142,7 +167,7 @@ func (s *S3Store) Upload(ctx context.Context, remoteCacheURL, path, sha256sum st
 		return fmt.Errorf("failed to upload file to s3: %w", err)
 	}
 
-	log.Printf("Uploaded to s3 bucket url=%s etag=%s sha256sum=%s duration=%s", remoteCacheURL, aws.ToString(uploadRes.ETag), sha256sum, time.Since(start))
+	log.Printf("Uploaded to s3 bucket url=%s etag=%s sha256sum=%s", remoteCacheURL, aws.ToString(uploadRes.ETag), sha256sum)
 
 	return nil
 }
