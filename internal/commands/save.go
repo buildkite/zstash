@@ -24,7 +24,6 @@ import (
 
 type SaveCmd struct {
 	Key                string   `flag:"key" help:"Key to save, this can be a template string."`
-	LocalCachePath     string   `flag:"local-cache-path" help:"Local cache path." env:"LOCAL_CACHE_PATH" required:"true"`
 	RemoteCacheURL     string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
 	ExpiresInSecs      int64    `flag:"expires-in-secs" help:"Expires in seconds." default:"86400"`
 	EncoderConcurrency int      `flag:"encoder-concurrency" help:"Zstd Encoder concurrency." default:"8"`
@@ -60,7 +59,15 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return fmt.Errorf("failed to build files from disk: %w", err)
 	}
 
-	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
+	dname, err := os.MkdirTemp("", "zstash-save")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer func(d string) {
+		_ = os.RemoveAll(d)
+	}(dname)
+
+	outputPath := buildOutputPath(dname, key, format)
 
 	sha256sum, err := saveArchive(ctx, format, files, outputPath)
 	if err != nil {

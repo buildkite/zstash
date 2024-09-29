@@ -27,12 +27,10 @@ func main() {
 
 	ctx := context.Background()
 
-	exp, err := trace.NewExporter(ctx)
+	tp, err := trace.NewProvider(ctx, "github.com/buildkite/zstash", version)
 	if err != nil {
-		log.Fatalf("failed to create trace exporter: %v", err)
+		log.Fatalf("failed to create trace provider: %v", err)
 	}
-
-	tp := trace.NewProvider("github.com/buildkite/zstash", exp)
 	defer func() {
 		_ = tp.Shutdown(ctx)
 	}()

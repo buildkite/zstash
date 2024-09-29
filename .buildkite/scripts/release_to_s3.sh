@@ -11,5 +11,11 @@ goreleaser release --snapshot --clean
 for i in `ls -1 dist/*.gz`
 do
 echo $i
-aws s3 cp $i s3://${RELEASE_BUCKET}/zstash/
+aws s3 cp $i s3://${RELEASE_BUCKET_USA}/zstash/
+done
+
+for i in `ls -1 dist/*.gz`
+do
+echo $i
+aws s3 cp $i s3://${RELEASE_BUCKET_EU}/zstash/
 done
