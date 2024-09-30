@@ -20,6 +20,7 @@ import (
 
 type RestoreCmd struct {
 	Key            string   `flag:"key" help:"Key to restore."`
+	LocalCachePath string   `flag:"local-cache-path" help:"Local cache path." env:"LOCAL_CACHE_PATH" default:"/tmp"`
 	RestorePath    string   `flag:"restore-path" help:"Path to restore." default:"." env:"RESTORE_PATH"`
 	RemoteCacheURL string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
 	UseAccelerate  bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
@@ -50,15 +51,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return fmt.Errorf("failed to create s3 store: %w", err)
 	}
 
-	dname, err := os.MkdirTemp("", "zstash-restore")
-	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer func(d string) {
-		_ = os.RemoveAll(d)
-	}(dname)
-
-	outputPath := buildOutputPath(dname, key, format)
+	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
 
 	remoteURL, err := url.JoinPath(cmd.RemoteCacheURL, fmt.Sprintf("%s%s", key, format.Name()))
 	if err != nil {
@@ -74,21 +67,40 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	}
 
 	if !ok {
-		span.SetAttributes(attribute.Bool("cache.hit", false))
-		log.Printf("CACHE MISS ❌ no cache found in remote cache")
+		span.SetAttributes(
+			attribute.Bool("cache.remote.hit", false),
+		)
+		log.Printf("CACHE REMOTE MISS ❌ key not found in remote cache")
 		return nil
 	}
 
-	err = st.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
-	if err != nil {
-		return fmt.Errorf("failed to download cache file: %w", err)
+	// is the cache already in the local cache?
+	if _, err := os.Stat(outputPath); errors.Is(err, os.ErrNotExist) {
+
+		// we didn't find the cache in the local cache, so we need to download it
+		span.SetAttributes(
+			attribute.Bool("cache.remote.hit", true),
+			attribute.Bool("cache.local.hit", false),
+		)
+
+		err = st.Download(ctx, remoteURL, outputPath, "") // we don't have a sha256sum
+		if err != nil {
+			return fmt.Errorf("failed to download cache file: %w", err)
+		}
+
+		// we downloaded the cache from the remote cache and can now restore it
+		log.Printf("Downloaded cache from remote cache to local cache=%s", outputPath)
+
+		log.Printf("CACHE REMOTE HIT ✅ key not found in local cache")
+
+	} else {
+		// we found the cache in the local cache, so we can restore it
+		span.SetAttributes(
+			attribute.Bool("cache.remote.hit", true),
+			attribute.Bool("cache.local.hit", true),
+		)
+		log.Printf("CACHE LOCAL HIT ✅ cache found in local cache")
 	}
-
-	// we downloaded the cache from the remote cache and can now restore it
-	log.Printf("Downloaded cache from remote cache to local cache=%s", outputPath)
-
-	span.SetAttributes(attribute.Bool("cache.hit", true))
-	log.Printf("CACHE HIT ✅ to archive=%s paths=%q", outputPath, cmd.Paths)
 
 	return extractArchive(ctx, format, outputPath, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug))
 }
