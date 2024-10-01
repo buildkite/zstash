@@ -23,6 +23,7 @@ type RestoreCmd struct {
 	LocalCachePath string   `flag:"local-cache-path" help:"Local cache path." env:"LOCAL_CACHE_PATH" default:"/tmp"`
 	RestorePath    string   `flag:"restore-path" help:"Path to restore." default:"." env:"RESTORE_PATH"`
 	RemoteCacheURL string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
+	Store          string   `enum:"s3,artifact" default:"s3"`
 	UseAccelerate  bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
 	Paths          []string `arg:"" name:"path" help:"Paths within the cache archive to restore to the restore path."`
 }
@@ -46,9 +47,16 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	span.SetAttributes(attribute.String("key", cmd.Key))
 	log.Printf("Restore key=%s", key)
 
-	st, err := store.NewS3Store(cmd.UseAccelerate)
+	var st store.Store
+
+	switch cmd.Store {
+	case "s3":
+		st, err = store.NewS3Store(cmd.UseAccelerate)
+	case "artifact":
+		st, err = store.NewArtifactStore()
+	}
 	if err != nil {
-		return fmt.Errorf("failed to create s3 store: %w", err)
+		return fmt.Errorf("failed to create store: %w", err)
 	}
 
 	outputPath := buildOutputPath(cmd.LocalCachePath, key, format)
