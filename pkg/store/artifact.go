@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,12 +26,12 @@ func (s *ArtifactStore) Exists(ctx context.Context, remoteCacheURL, path string)
 	ctx, span := trace.Start(ctx, "ArtifactStore.Exists")
 	defer span.End()
 
-	artifactName := filepath.Base(path)
+	// artifactName := filepath.Base(path)
 
 	// buildkite-agent artifact search "key-whateer.tar.gz" -format "%p||%c||%s||%T\n"
 
 	// using double pipe as a separator to avoid conflicts with file names and ;; as a separator for the lines as \n doesn't work
-	result, err := runCommand(ctx, "buildkite-agent", "artifact", "search", artifactName, "-format", "%p||%c||%s||%T;;")
+	result, err := runCommand(ctx, "", "buildkite-agent", "artifact", "search", remoteCacheURL, "-format", "%p||%c||%s||%T;;")
 	if err != nil {
 		return "", false, fmt.Errorf("error searching artifact: %v", err)
 	}
@@ -48,7 +49,10 @@ func (s *ArtifactStore) Upload(ctx context.Context, remoteCacheURL, path, sha256
 
 	// buildkite-agent upload "key-whateer.tar.gz"
 
-	result, err := runCommand(ctx, "buildkite-agent", "artifact", "upload", path)
+	dir := filepath.Dir(path)
+	artifactName := filepath.Base(path)
+
+	result, err := runCommand(ctx, dir, "buildkite-agent", "artifact", "upload", artifactName)
 	if err != nil {
 		return fmt.Errorf("error uploading artifact: %v", err)
 	}
@@ -66,16 +70,18 @@ func (s *ArtifactStore) Download(ctx context.Context, remoteCacheURL, path, sha2
 	ctx, span := trace.Start(ctx, "ArtifactStore.Download")
 	defer span.End()
 
-	artifactName := filepath.Base(path)
+	// artifactName := filepath.Base(path)
 
 	// buildkite-agent artifact download "key-whateer.tar.gz" .
 
-	tempPath, err := os.MkdirTemp("tmp", "buildkite-agent-artifact")
+	log.Printf("Downloading artifact %s to %s", remoteCacheURL, path)
+
+	tempPath, err := os.MkdirTemp("/tmp", "buildkite-agent-artifact")
 	if err != nil {
 		return err
 	}
 
-	result, err := runCommand(ctx, "buildkite-agent", "artifact", "download", artifactName, tempPath)
+	result, err := runCommand(ctx, tempPath, "buildkite-agent", "artifact", "download", remoteCacheURL, ".")
 	if err != nil {
 		return fmt.Errorf("error downloading artifact: %v", err)
 	}
@@ -86,8 +92,10 @@ func (s *ArtifactStore) Download(ctx context.Context, remoteCacheURL, path, sha2
 
 	fmt.Println(result.Stdout)
 
+	fmt.Printf("Moving %s to %s\n", filepath.Join(tempPath, remoteCacheURL), path)
+
 	// move the file to the correct path
-	err = os.Rename(filepath.Join(tempPath, artifactName), path)
+	err = os.Rename(filepath.Join(tempPath, remoteCacheURL), path)
 	if err != nil {
 		return fmt.Errorf("error moving artifact: %v", err)
 	}
@@ -117,7 +125,7 @@ type CommandResult struct {
 	ExitCode int
 }
 
-func runCommand(ctx context.Context, args ...string) (*CommandResult, error) {
+func runCommand(ctx context.Context, workingDir string, args ...string) (*CommandResult, error) {
 	_, span := trace.Start(ctx, "runCommand")
 	defer span.End()
 
@@ -130,6 +138,10 @@ func runCommand(ctx context.Context, args ...string) (*CommandResult, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.Env = os.Environ() // inherit the environment
+
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
 
 	err := cmd.Run()
 	if err != nil {
