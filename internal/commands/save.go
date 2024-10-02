@@ -26,6 +26,7 @@ type SaveCmd struct {
 	Key                string   `flag:"key" help:"Key to save, this can be a template string."`
 	LocalCachePath     string   `flag:"local-cache-path" help:"Local cache path." env:"LOCAL_CACHE_PATH" default:"/tmp"`
 	RemoteCacheURL     string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
+	Store              string   `flag:"store" help:"store used to upload / download, either s3 or artifact" enum:"s3,artifact" default:"s3"`
 	ExpiresInSecs      int64    `flag:"expires-in-secs" help:"Expires in seconds." default:"86400"`
 	EncoderConcurrency int      `flag:"encoder-concurrency" help:"Zstd Encoder concurrency." default:"8"`
 	UseAccelerate      bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
@@ -67,17 +68,28 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return fmt.Errorf("failed to save archive: %w", err)
 	}
 
-	if cmd.RemoteCacheURL != "" {
+	var (
+		st        store.Store
+		remoteURL string
+	)
+
+	if cmd.RemoteCacheURL != "" || cmd.Store == "artifact" {
 		log.Printf("Uploading to remote cache url=%s expires-in-secs=%d", cmd.RemoteCacheURL, cmd.ExpiresInSecs)
 
-		remoteURL, err := url.JoinPath(cmd.RemoteCacheURL, fmt.Sprintf("%s%s", key, format.Name()))
+		switch cmd.Store {
+		case "s3":
+			remoteURL = cmd.RemoteCacheURL
+			st, err = store.NewS3Store(cmd.UseAccelerate)
+		case "artifact":
+			st, err = store.NewArtifactStore()
+		}
 		if err != nil {
-			return fmt.Errorf("failed to build remote url: %w", err)
+			return fmt.Errorf("failed to create store: %w", err)
 		}
 
-		st, err := store.NewS3Store(cmd.UseAccelerate)
+		remoteURL, err = url.JoinPath(remoteURL, fmt.Sprintf("%s%s", key, format.Name()))
 		if err != nil {
-			return fmt.Errorf("failed to create s3 store: %w", err)
+			return fmt.Errorf("failed to build remote url: %w", err)
 		}
 
 		err = st.Upload(ctx, remoteURL, outputPath, sha256sum, cmd.ExpiresInSecs)
