@@ -31,7 +31,7 @@ func (s *ArtifactStore) Exists(ctx context.Context, remoteCacheURL, path string)
 	// buildkite-agent artifact search "key-whateer.tar.gz" -format "%p||%c||%s||%T\n"
 
 	// using double pipe as a separator to avoid conflicts with file names and ;; as a separator for the lines as \n doesn't work
-	result, err := runCommand(ctx, "", "buildkite-agent", "artifact", "search", remoteCacheURL, "-format", "%p||%c||%s||%T;;")
+	result, err := runCommand(ctx, "", "buildkite-agent", "artifact", "search", remoteCacheURL, "-format", "%p||%c||%s||%T;;", "-allow-empty-results")
 	if err != nil {
 		return "", false, fmt.Errorf("error searching artifact: %v", err)
 	}
