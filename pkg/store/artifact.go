@@ -92,7 +92,12 @@ func (s *ArtifactStore) Download(ctx context.Context, remoteCacheURL, path, sha2
 
 	fmt.Println(result.Stdout)
 
-	fmt.Printf("Moving %s to %s\n", filepath.Join(tempPath, remoteCacheURL), path)
+	log.Printf("Moving %s to %s\n", filepath.Join(tempPath, remoteCacheURL), path)
+
+	err = os.MkdirAll(filepath.Dir(path), 0755)
+	if err != nil {
+		return fmt.Errorf("error creating directory: %v", err)
+	}
 
 	// move the file to the correct path
 	err = os.Rename(filepath.Join(tempPath, remoteCacheURL), path)
@@ -105,6 +110,8 @@ func (s *ArtifactStore) Download(ctx context.Context, remoteCacheURL, path, sha2
 
 func parseSearchResult(stdout string) (string, bool, error) {
 	lines := strings.Split(stdout, ";;")
+
+	log.Printf("lines count: %d data: %v\n", len(lines), lines)
 
 	if len(lines) == 0 {
 		return "", false, nil
