@@ -44,7 +44,11 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return fmt.Errorf("failed to resolve key: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("key", cmd.Key))
+	span.SetAttributes(
+		attribute.String("key", cmd.Key),
+		attribute.String("resolved_key", key),
+		attribute.String("store", cmd.Store),
+	)
 	log.Printf("Restore key=%s", key)
 
 	var (
@@ -114,29 +118,54 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		log.Printf("CACHE LOCAL HIT ✅ cache found in local cache")
 	}
 
-	return extractArchive(ctx, format, outputPath, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug))
+	stats := &FileStats{}
+	archiveSize, err := extractArchive(ctx, format, outputPath, cmd.Paths, fileHandler(cmd.RestorePath, globals.Debug, stats))
+	if err != nil {
+		return fmt.Errorf("failed to extract archive: %w", err)
+	}
+
+	span.SetAttributes(
+		attribute.Int("archive.files", stats.Files),
+		attribute.Int("archive.dirs", stats.Dirs),
+		attribute.Int64("archive.files.size", stats.Size),
+		attribute.Int64("archive.size", archiveSize),
+	)
+
+	log.Printf("Restored archive files=%d dirs=%d files_total_size=%d archive_size=%d", stats.Files, stats.Dirs, stats.Size, archiveSize)
+
+	return nil
 }
 
-func extractArchive(ctx context.Context, format archiver.CompressedArchive, outputPath string, paths []string, handler archiver.FileHandler) error {
+func extractArchive(ctx context.Context, format archiver.CompressedArchive, outputPath string, paths []string, handler archiver.FileHandler) (int64, error) {
 	ctx, span := trace.Start(ctx, "extractArchive")
 	defer span.End()
 
 	f, err := os.Open(outputPath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return 0, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer f.Close()
 
-	err = format.Extract(ctx, f, paths, handler)
+	finfo, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("failed to archive: %w", err)
+		return 0, fmt.Errorf("failed to stat file: %w", err)
 	}
 
-	return nil
+	err = format.Extract(ctx, f, paths, handler)
+	if err != nil {
+		return 0, fmt.Errorf("failed to archive: %w", err)
+	}
+
+	return finfo.Size(), nil
 }
 
-func fileHandler(restorePath string, debug bool) archiver.FileHandler {
+type FileStats struct {
+	Files int
+	Dirs  int
+	Size  int64
+}
 
+func fileHandler(restorePath string, debug bool, stats *FileStats) archiver.FileHandler {
 	return func(ctx context.Context, file archiver.File) error {
 		if debug {
 			log.Printf("Extracting name=%s dir=%v", file.NameInArchive, file.IsDir())
@@ -153,6 +182,8 @@ func fileHandler(restorePath string, debug bool) archiver.FileHandler {
 			if debug {
 				log.Printf("Creating directory name=%s", path)
 			}
+
+			stats.Dirs++
 
 			return nil // we are done
 		}
@@ -187,10 +218,13 @@ func fileHandler(restorePath string, debug bool) archiver.FileHandler {
 		}
 		defer tf.Close()
 
-		_, err = io.Copy(tf, f)
+		n, err := io.Copy(tf, f)
 		if err != nil {
 			return err
 		}
+
+		stats.Files++
+		stats.Size += n
 
 		// defer func(start time.Time, path string) {
 		// 	log.Printf("Extracted path=%s in=%s", path, time.Since(start))
