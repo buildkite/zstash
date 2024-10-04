@@ -24,6 +24,7 @@ type RestoreCmd struct {
 	RestorePath    string   `flag:"restore-path" help:"Path to restore." default:"." env:"RESTORE_PATH"`
 	RemoteCacheURL string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
 	Store          string   `flag:"store" help:"store used to upload / download, either s3 or artifact" enum:"s3,artifact" default:"s3"`
+	Format         string   `flag:"format" help:"the format of the archive" enum:"zip,tar.zstd" default:"zip"`
 	UseAccelerate  bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
 	Paths          []string `arg:"" name:"path" help:"Paths within the cache archive to restore to the restore path."`
 }
@@ -34,9 +35,9 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 	log.Printf("Restore version=%s", globals.Version)
 
-	format := archiver.CompressedArchive{
-		Compression: archiver.Zstd{},
-		Archival:    archiver.Tar{},
+	format, err := archiveFormat(cmd.Format)
+	if err != nil {
+		return fmt.Errorf("failed to get archive format: %w", err)
 	}
 
 	key, err := key.Resolve(cmd.Key, cmd.Paths)
@@ -127,11 +128,12 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	span.SetAttributes(
 		attribute.Int("archive.files", stats.Files),
 		attribute.Int("archive.dirs", stats.Dirs),
+		attribute.Int("archive.dirs", stats.Links),
 		attribute.Int64("archive.files.size", stats.Size),
 		attribute.Int64("archive.size", archiveSize),
 	)
 
-	log.Printf("Restored archive files=%d dirs=%d files_total_size=%d archive_size=%d", stats.Files, stats.Dirs, stats.Size, archiveSize)
+	log.Printf("Restored archive files=%d dirs=%d links=%d files_total_size=%d archive_size=%d", stats.Files, stats.Dirs, stats.Links, stats.Size, archiveSize)
 
 	return nil
 }
@@ -161,6 +163,7 @@ func extractArchive(ctx context.Context, format archiver.CompressedArchive, outp
 
 type FileStats struct {
 	Files int
+	Links int
 	Dirs  int
 	Size  int64
 }
@@ -200,6 +203,9 @@ func fileHandler(restorePath string, debug bool, stats *FileStats) archiver.File
 			if debug {
 				log.Printf("Creating link name=%s target=%s", path, file.LinkTarget)
 			}
+
+			// also count links
+			stats.Links++
 
 			return nil // we are done
 		}
