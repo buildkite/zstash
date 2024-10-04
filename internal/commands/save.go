@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/klauspost/compress/zstd"
 	"github.com/mholt/archiver/v4"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -28,6 +27,7 @@ type SaveCmd struct {
 	RemoteCacheURL     string   `flag:"remote-cache-url" help:"Remote cache URL." env:"REMOTE_CACHE_URL"`
 	Store              string   `flag:"store" help:"store used to upload / download, either s3 or artifact" enum:"s3,artifact" default:"s3"`
 	ExpiresInSecs      int64    `flag:"expires-in-secs" help:"Expires in seconds." default:"86400"`
+	Format             string   `flag:"format" help:"the format of the archive" enum:"zip,tar.zstd" default:"zip"`
 	EncoderConcurrency int      `flag:"encoder-concurrency" help:"Zstd Encoder concurrency." default:"8"`
 	UseAccelerate      bool     `flag:"use-accelerate" help:"Use S3 accelerate."`
 	Paths              []string `arg:"" name:"path" help:"Paths to remove." type:"path"`
@@ -47,13 +47,9 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Printf("Saving key=%s", key)
 	span.SetAttributes(attribute.String("key", cmd.Key))
 
-	format := archiver.CompressedArchive{
-		Compression: archiver.Zstd{
-			EncoderOptions: []zstd.EOption{
-				zstd.WithEncoderConcurrency(cmd.EncoderConcurrency),
-			},
-		},
-		Archival: archiver.Tar{},
+	format, err := archiveFormat(cmd.Format)
+	if err != nil {
+		return fmt.Errorf("failed to get archive format: %w", err)
 	}
 
 	files, err := buildFilesFromDisk(ctx, cmd.Paths)
