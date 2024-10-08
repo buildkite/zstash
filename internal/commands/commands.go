@@ -2,7 +2,9 @@ package commands
 
 import (
 	"errors"
+	"runtime"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/mholt/archiver/v4"
 )
 
@@ -22,8 +24,12 @@ func archiveFormat(format string) (archiver.CompressedArchive, error) {
 		}, nil
 	case "tar.zstd":
 		return archiver.CompressedArchive{
-			Compression: archiver.Zstd{},
-			Archival:    archiver.Tar{},
+			Compression: archiver.Zstd{
+				EncoderOptions: []zstd.EOption{
+					zstd.WithEncoderConcurrency(runtime.NumCPU()),
+				},
+			},
+			Archival: archiver.Tar{},
 		}, nil
 	default:
 		return archiver.CompressedArchive{}, errors.New("invalid format")
