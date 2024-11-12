@@ -100,7 +100,7 @@ func (s *ArtifactStore) Download(ctx context.Context, remoteCacheURL, path, sha2
 	}
 
 	// move the file to the correct path
-	err = os.Rename(filepath.Join(tempPath, remoteCacheURL), path)
+	err = MoveFile(filepath.Join(tempPath, remoteCacheURL), path)
 	if err != nil {
 		return fmt.Errorf("error moving artifact: %v", err)
 	}
