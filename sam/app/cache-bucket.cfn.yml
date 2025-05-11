@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "buildkite: local cache bucket"
+
+Parameters:
+  AppName:
+    Type: String
+    Description: Application Name used to store configuration.
+  Stage:
+    Type: String
+    Description: The stage where the stack is running in, e.g., dev, prod.
+    Default: dev
+  CachePrefix:
+    Type: String
+
+Outputs:
+  CacheBucket:
+    Value: !Ref CacheBucket
+
+Resources:
+  CacheBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  CacheBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CacheBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowSSLRequestsOnly
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - s3:*
+            Resource:
+              - Fn::Sub: arn:aws:s3:::${CacheBucket}/*
+              - Fn::Sub: arn:aws:s3:::${CacheBucket}
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  CacheBucketParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /config/${Stage}/${AppName}/cache_bucket
+      Type: String
+      Value:
+        Ref: CacheBucket
+
+  CachePrefixParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name:
+        Fn::Sub: /config/${Stage}/${AppName}/cache_prefix
+      Type: String
+      Value:
+        Ref: CachePrefix

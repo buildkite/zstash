@@ -50,5 +50,5 @@ func main() {
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
-	log.Printf("operation completed duration=%s", time.Since(start))
+	log.Printf("command=%s completed duration=%s", cmd.Command(), time.Since(start))
 }

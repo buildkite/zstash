@@ -1,13 +1,13 @@
 # zstash
 
-WIP of a cache save and restore tool.
+WIP of a cache save and restore tool which uses a WIP feature in the buildkite api.
 
 # Usage
 
 Save usage.
 
 ```
-Usage: zstash save --local-cache-path=STRING <path> ... [flags]
+Usage: zstash save --key=STRING --organization=STRING --branch=STRING --pipeline=STRING --token=STRING <path> ... [flags]
 
 save files.
 
@@ -15,22 +15,28 @@ Arguments:
   <path> ...    Paths to remove.
 
 Flags:
-  -h, --help                       Show context-sensitive help.
+  -h, --help                                         Show context-sensitive help.
       --version
-      --debug                      Enable debug mode.
+      --debug                                        Enable debug mode.
 
-      --key=STRING                 Key to save, this can be a template string.
-      --local-cache-path=STRING    Local cache path ($LOCAL_CACHE_PATH).
-      --remote-cache-url=STRING    Remote cache URL ($REMOTE_CACHE_URL).
-      --expires-in-secs=86400      Expires in seconds.
-      --encoder-concurrency=8      Zstd Encoder concurrency.
-      --use-accelerate             Use S3 accelerate.
+      --key=STRING                                   Key of the cache entry to save, this can be a template string.
+      --registry-slug="~"                            The registry slug to use ($BUILDKITE_REGISTRY_SLUG).
+      --endpoint="https://agent.buildkite.com/v3"    The endpoint to use. Defaults to the Buildkite agent API endpoint.
+      --store="s3"                                   store used to upload / download, either s3 or artifact
+      --format="zip"                                 the format of the archive
+      --organization=STRING                          The organization to use ($BUILDKITE_ORGANIZATION_SLUG).
+      --branch=STRING                                The branch to use ($BUILDKITE_BRANCH).
+      --pipeline=STRING                              The pipeline to use ($BUILDKITE_PIPELINE_SLUG).
+      --bucket-url=STRING                            The bucket URL to use ($BUILDKITE_CACHE_BUCKET_URL).
+      --prefix=STRING                                The prefix to use ($BUILDKITE_CACHE_PREFIX).
+      --token=STRING                                 The buildkite agent access token to use ($BUILDKITE_AGENT_ACCESS_TOKEN).
+      --skip                                         Skip saving the cache entry ($BUILDKITE_CACHE_SKIP).
 ```
 
 Restore usage.
 
 ```
-Usage: zstash restore <path> ... [flags]
+Usage: zstash restore --key=STRING --token=STRING <path> ... [flags]
 
 restore files.
 
@@ -38,15 +44,21 @@ Arguments:
   <path> ...    Paths within the cache archive to restore to the restore path.
 
 Flags:
-  -h, --help                       Show context-sensitive help.
+  -h, --help                                         Show context-sensitive help.
       --version
-      --debug                      Enable debug mode.
+      --debug                                        Enable debug mode.
 
-      --key=STRING                 Key to restore.
-      --local-cache-path=STRING    Local cache path ($LOCAL_CACHE_PATH).
-      --restore-path="."           Path to restore ($RESTORE_PATH).
-      --remote-cache-url=STRING    Remote cache URL ($REMOTE_CACHE_URL).
-      --use-accelerate             Use S3 accelerate.
+      --key=STRING                                   Key of the cache entry to restore, this can be a template string.
+      --registry-slug="~"                            The registry slug to use ($BUILDKITE_REGISTRY_SLUG).
+      --endpoint="https://agent.buildkite.com/v3"    The endpoint to use. Defaults to the Buildkite agent API endpoint.
+      --store="s3"                                   store used to upload / download, either s3 or artifact
+      --format="zip"                                 the format of the archive
+      --organization=STRING                          The organization to use ($BUILDKITE_ORGANIZATION_SLUG).
+      --branch=STRING                                The branch to use ($BUILDKITE_BRANCH).
+      --pipeline=STRING                              The pipeline to use ($BUILDKITE_PIPELINE_SLUG).
+      --bucket-url=STRING                            The bucket URL to use ($BUILDKITE_CACHE_BUCKET_URL).
+      --token=STRING                                 The buildkite agent access token to use ($BUILDKITE_AGENT_ACCESS_TOKEN).
+      --prefix=STRING                                The prefix to use ($BUILDKITE_CACHE_PREFIX).
 ```
 
 ## Key templates
@@ -63,20 +75,6 @@ Currently the template has the following inbuilt functions.
 
 > [!NOTE]
 > When building a cache key missing environment variables are more important as we are aiming to be more explicit with the match of an archive.
-
-# Examples
-
-Save local node modules with only a local cache.
-
-```
-zstash save --local-cache-path /tmp --key '{{ env "BUILDKITE_PIPELINE_NAME" }}/{{ env "BUILDKITE_BRANCH" }}-{{ shasum "./package-lock.json" }}' ./node_modules/
-```
-
-Restore local node modules with only a local cache.
-
-```
-zstash restore --debug --key '{{ env "BUILDKITE_PIPELINE_NAME" }}/{{ env "BUILDKITE_BRANCH" }}-{{ shasum "./package-lock.json" }}' --local-cache-path /tmp node_modules
-```
 
 # Verification
 
