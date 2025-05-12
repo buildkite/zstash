@@ -68,7 +68,9 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	if err != nil {
 		return trace.NewError(span, "failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
 
 	archiveFile := filepath.Join(tmpDir, cmd.Key)
 
@@ -83,7 +85,9 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	if err != nil {
 		return trace.NewError(span, "failed to open archive file: %w", err)
 	}
-	defer archiveFileHandle.Close()
+	defer func() {
+		_ = archiveFileHandle.Close()
+	}()
 
 	log.Info().Strs("paths", cmd.Paths).Msg("extracting files")
 

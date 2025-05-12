@@ -128,7 +128,9 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	// read the response body
 	resp = CachePeekResp{}
@@ -184,7 +186,9 @@ func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCr
 	if err != nil {
 		return resp, trace.NewError(span, "failed to do request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
@@ -231,7 +235,10 @@ func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCo
 	if err != nil {
 		return resp, trace.NewError(span, "failed to do request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
+
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {
 		return resp, trace.NewError(span, "failed to decode response body: %w", err)
@@ -291,7 +298,9 @@ func (c Client) CacheRetrieve(ctx context.Context, create CacheRetrieveReq) (Cac
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	err = json.NewDecoder(res.Body).Decode(&resp)
 	if err != nil {

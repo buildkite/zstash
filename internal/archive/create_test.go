@@ -18,7 +18,7 @@ func TestBuildArchive(t *testing.T) {
 	home, err := os.Getwd()
 	assert.NoError(err)
 
-	os.Setenv("HOME", home)
+	t.Setenv("HOME", home)
 
 	archiveInfo, err := BuildArchive(context.Background(), []string{"testdata"}, "test")
 	assert.NoError(err)

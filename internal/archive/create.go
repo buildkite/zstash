@@ -34,7 +34,9 @@ func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo
 	if err != nil {
 		return nil, fmt.Errorf("failed to create archive file: %w", err)
 	}
-	defer archiveFile.Close()
+	defer func() {
+		_ = archiveFile.Close()
+	}()
 
 	checksummer := NewChecksumSHA256(archiveFile)
 

@@ -104,7 +104,9 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) error 
 	if err != nil {
 		return fmt.Errorf("failed to open file %s: %w", filePath, err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	// Upload the file to S3
 	_, err = b.client.PutObject(ctx, &s3.PutObjectInput{
@@ -135,14 +137,18 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (int
 	if err != nil {
 		return 0, fmt.Errorf("failed to download file from S3: %w", err)
 	}
-	defer result.Body.Close()
+	defer func() {
+		_ = result.Body.Close()
+	}()
 
 	// Create the destination file
 	destFile, err := os.Create(destPath)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create destination file %s: %w", destPath, err)
 	}
-	defer destFile.Close()
+	defer func() {
+		_ = destFile.Close()
+	}()
 
 	// Write the S3 object to the file
 	bytesWritten, err := destFile.ReadFrom(result.Body)
