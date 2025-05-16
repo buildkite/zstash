@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
@@ -15,16 +16,13 @@ import (
 
 type RestoreCmd struct {
 	Key          string   `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
-	RegistrySlug string   `flag:"registry-slug" help:"The registry slug to use." env:"BUILDKITE_REGISTRY_SLUG" default:"~"`
-	Endpoint     string   `flag:"endpoint" help:"The endpoint to use. Defaults to the Buildkite agent API endpoint." default:"https://agent.buildkite.com/v3"`
-	Store        string   `flag:"store" help:"store used to upload / download, either s3 or artifact" enum:"s3,artifact" default:"s3"`
+	Store        string   `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
 	Format       string   `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
 	Paths        []string `arg:"" name:"path" help:"Paths within the cache archive to restore to the restore path."`
 	Organization string   `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
 	Branch       string   `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`
 	Pipeline     string   `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
 	BucketURL    string   `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
-	Token        string   `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
 	Prefix       string   `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
 }
 
@@ -39,13 +37,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		attribute.StringSlice("paths", cmd.Paths),
 	)
 
-	// create a http client
-	client, err := NewClient(ctx, cmd.Endpoint, cmd.RegistrySlug, cmd.Token)
-	if err != nil {
-		return trace.NewError(span, "failed to create client: %w", err)
-	}
-
-	_, exists, err := client.CacheRetrieve(ctx, CacheRetrieveReq{Key: cmd.Key})
+	_, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{Key: cmd.Key})
 	if err != nil {
 		return trace.NewError(span, "failed to retrieve cache: %w", err)
 	}
