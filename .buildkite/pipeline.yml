@@ -24,24 +24,6 @@ steps:
     - key: security_scan
       label: ':trivy: security scan'
       command: trivy fs .
-      retry:
-        automatic:
-        - limit: 2
-          exit_status: -1
-        - limit: 2
-          exit_status: 18
-        - limit: 2
-          exit_status: 53
-        - limit: 2
-          exit_status: 125
-        - limit: 2
-          exit_status: 128
-        - limit: 2
-          exit_status: 143
-        - limit: 2
-          exit_status: 255
-        - limit: 2
-          exit_status: 1
       plugins:
         - docker-compose#v5.3.0:
             run: app
@@ -51,24 +33,6 @@ steps:
       TESTING_ENV: ci
     label: ':golang: build'
     command: goreleaser build --snapshot --clean --single-target
-    retry:
-      automatic:
-      - limit: 2
-        exit_status: -1
-      - limit: 2
-        exit_status: 18
-      - limit: 2
-        exit_status: 53
-      - limit: 2
-        exit_status: 125
-      - limit: 2
-        exit_status: 128
-      - limit: 2
-        exit_status: 143
-      - limit: 2
-        exit_status: 255
-      - limit: 2
-        exit_status: 1    
     artifact_paths:
       - 'dist/**/*'
     plugins:

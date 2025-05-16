@@ -7,7 +7,9 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
+	"github.com/buildkite/zstash/internal/key"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/rs/zerolog/log"
@@ -16,9 +18,7 @@ import (
 
 type SaveCmd struct {
 	Key          string   `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
-	RegistrySlug string   `flag:"registry-slug" help:"The registry slug to use." env:"BUILDKITE_REGISTRY_SLUG" default:"~"`
-	Endpoint     string   `flag:"endpoint" help:"The endpoint to use. Defaults to the Buildkite agent API endpoint." default:"https://agent.buildkite.com/v3"`
-	Store        string   `flag:"store" help:"store used to upload / download, either s3 or artifact" enum:"s3" default:"s3"`
+	Store        string   `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
 	Format       string   `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
 	Paths        []string `arg:"" name:"path" help:"Paths to remove."`
 	Organization string   `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG" required:"true"`
@@ -26,7 +26,6 @@ type SaveCmd struct {
 	Pipeline     string   `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG" required:"true"`
 	BucketURL    string   `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
 	Prefix       string   `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
-	Token        string   `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
 	Skip         bool     `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
 }
 
@@ -49,18 +48,15 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return nil
 	}
 
-	// create a http client
-	client, err := NewClient(ctx, cmd.Endpoint, cmd.RegistrySlug, cmd.Token)
+	tkey, err := key.Template(cmd.Key)
 	if err != nil {
-		return trace.NewError(span, "failed to create client: %w", err)
+		return trace.NewError(span, "failed to template key: %w", err)
 	}
 
 	// peek at the cache registry
-	peek := CachePeekReq{
-		Key: cmd.Key,
-	}
-
-	peekResp, exists, err := client.CachePeekExists(ctx, peek)
+	peekResp, exists, err := globals.Client.CachePeekExists(ctx, api.CachePeekReq{
+		Key: tkey,
+	})
 	if err != nil {
 		return trace.NewError(span, "failed to peek cache: %w", err)
 	}
@@ -81,7 +77,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	start := time.Now()
 
-	fileInfo, err := archive.BuildArchive(ctx, cmd.Paths, cmd.Key)
+	fileInfo, err := archive.BuildArchive(ctx, cmd.Paths, tkey)
 	if err != nil {
 		return fmt.Errorf("failed to build archive: %w", err)
 	}
@@ -94,8 +90,8 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		Dur("duration_ms", time.Since(start)).
 		Msg("archive built")
 
-	create := CacheCreateReq{
-		Key:          cmd.Key,
+	createResp, err := globals.Client.CacheCreate(ctx, api.CacheCreateReq{
+		Key:          tkey,
 		Compression:  cmd.Format,
 		FileSize:     int(fileInfo.Size),
 		Digest:       fmt.Sprintf("sha256:%s", fileInfo.Sha256sum), // "sha256:997cd98513730e9ca1beebf7f17d4625a968aabd",
@@ -104,9 +100,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		Pipeline:     cmd.Pipeline,
 		Branch:       cmd.Branch,
 		Organization: cmd.Organization,
-	}
-
-	createResp, err := client.CacheCreate(ctx, create)
+	})
 	if err != nil {
 		return trace.NewError(span, "failed to create cache: %w", err)
 	}
@@ -124,11 +118,9 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to upload cache: %w", err)
 	}
 
-	commit := CacheCommitReq{
+	commitResp, err := globals.Client.CacheCommit(ctx, api.CacheCommitReq{
 		UploadID: createResp.UploadID,
-	}
-
-	commitResp, err := client.CacheCommit(ctx, commit)
+	})
 	if err != nil {
 		return trace.NewError(span, "failed to commit cache: %w", err)
 	}
@@ -152,6 +144,14 @@ func checkPathsExist(paths []string) ([]string, error) {
 			}
 			path = homeDir + path[1:]
 		}
+
+		// current working directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get current working directory: %w", err)
+		}
+
+		log.Info().Str("path", path).Str("cwd", cwd).Msg("checking path")
 
 		// check if the path exists
 		if _, err := os.Stat(path); os.IsNotExist(err) {
