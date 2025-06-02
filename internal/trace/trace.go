@@ -10,27 +10,36 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
 var tracerName = "github.com/buildkite/zstash"
 
-func NewProvider(ctx context.Context, name, version string) (*sdktrace.TracerProvider, error) {
-	exp, err := otlptracegrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create exporter: %w", err)
-	}
-
+func NewProvider(ctx context.Context, exporter, name, version string) (*sdktrace.TracerProvider, error) {
 	res, err := newResource(ctx, name, version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	var exp sdktrace.SpanExporter
+	switch exporter {
+	case "grpc":
+		exp, err = otlptracegrpc.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create exporter: %w", err)
+		}
+	default:
+		// a null exporter is used for testing
+		exp = tracetest.NewNoopExporter()
 	}
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(res),
 	)
+
 	otel.SetTracerProvider(tp)
 
 	otel.SetTextMapPropagator(

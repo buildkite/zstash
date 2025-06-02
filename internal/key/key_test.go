@@ -13,6 +13,7 @@ import (
 func TestTemplate(t *testing.T) {
 	tests := []struct {
 		name        string
+		id          string
 		key         string
 		expected    string
 		expectedErr bool
@@ -42,14 +43,45 @@ func TestTemplate(t *testing.T) {
 		},
 		{
 			name: "checksum function with file",
-			key:  `{{checksum "testfile"}}`,
+			id:   "go",
+			key:  `{{ id }}-{{checksum "go.mod"}}`,
 			setup: func() error {
-				return os.WriteFile("testfile", []byte("test content"), 0644)
+				return os.WriteFile("go.mod", []byte("test content"), 0644)
 			},
 			cleanup: func() {
 				_ = os.Remove("testfile")
 			},
-			expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", // This is the expected SHA256 hash
+			expected: "go-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", // This is the expected SHA256 hash
+		},
+		{
+			name: "checksum function with file and os/arch",
+			id:   "go",
+			key:  `{{ id }}-{{ agent.os }}-{{ agent.arch }}-{{checksum "go.mod"}}`,
+			setup: func() error {
+				return os.WriteFile("go.mod", []byte("test content"), 0644)
+			},
+			cleanup: func() {
+				_ = os.Remove("testfile")
+			},
+			expected: fmt.Sprintf("go-%s-%s-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", runtime.GOOS, runtime.GOARCH), // This is the expected SHA256 hash
+		},
+		{
+			name: "checksum function with file and directory",
+			key:  `go-{{checksum "go.mod"}}`,
+			setup: func() error {
+				if err := os.Mkdir("integration-tests", 0755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join("integration-tests", "go.mod"), []byte("test content"), 0644); err != nil {
+					return err
+				}
+				return os.WriteFile("go.mod", []byte("test content"), 0644)
+			},
+			cleanup: func() {
+				_ = os.Remove("testfile")
+				_ = os.RemoveAll("testdir")
+			},
+			expected: "go-41a16a34ed93bb76eb778de4bb735de7d43ff39ffa1c60027e1616cade39712b", // This is the expected SHA256 hash
 		},
 		{
 			name: "checksum function with directory",
@@ -64,40 +96,6 @@ func TestTemplate(t *testing.T) {
 				_ = os.RemoveAll("testdir")
 			},
 			expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", // This would be the actual expected hash
-		},
-		{
-			name: "checksum function with directory and BUILDKITE_BRANCH env var",
-			key:  `node-{{ env "BUILDKITE_BRANCH" }}-{{ checksum "testdir"}}`,
-			setup: func() error {
-				if err := os.Mkdir("testdir", 0755); err != nil {
-					return err
-				}
-				return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0644)
-			},
-			cleanup: func() {
-				_ = os.RemoveAll("testdir")
-			},
-			env: map[string]string{
-				"BUILDKITE_BRANCH": "main",
-			},
-			expected: "node-main-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", // This would be the actual expected hash
-		},
-		{
-			name: "checksum function with directory and BUILDKITE_BRANCH env var and runner.os",
-			key:  `node-{{ env "BUILDKITE_BRANCH" }}-{{ runner.os }}-{{ runner.arch }}-{{ checksum "testdir"}}`,
-			setup: func() error {
-				if err := os.Mkdir("testdir", 0755); err != nil {
-					return err
-				}
-				return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0644)
-			},
-			cleanup: func() {
-				_ = os.RemoveAll("testdir")
-			},
-			env: map[string]string{
-				"BUILDKITE_BRANCH": "main",
-			},
-			expected: fmt.Sprintf("node-main-%s-%s-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", runtime.GOOS, runtime.GOARCH), // This would be the actual expected hash
 		},
 	}
 
@@ -131,7 +129,7 @@ func TestTemplate(t *testing.T) {
 				defer tt.cleanup()
 			}
 
-			got, err := Template(tt.key)
+			got, err := Template(tt.id, tt.key)
 			assert.NoError(err)
 			assert.Equal(tt.expected, got)
 		})

@@ -12,7 +12,7 @@ import (
 func TestBuildArchive(t *testing.T) {
 	assert := require.New(t)
 
-	_, err := trace.NewProvider(context.Background(), "test", "0.0.1")
+	_, err := trace.NewProvider(context.Background(), "noop", "test", "0.0.1")
 	assert.NoError(err)
 
 	home, err := os.Getwd()
