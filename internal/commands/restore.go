@@ -8,6 +8,7 @@ import (
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
+	"github.com/buildkite/zstash/internal/key"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/rs/zerolog/log"
@@ -15,15 +16,16 @@ import (
 )
 
 type RestoreCmd struct {
-	Key          string   `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
-	Store        string   `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
-	Format       string   `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
-	Paths        []string `arg:"" name:"path" help:"Paths within the cache archive to restore to the restore path."`
-	Organization string   `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
-	Branch       string   `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`
-	Pipeline     string   `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
-	BucketURL    string   `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
-	Prefix       string   `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
+	ID           string `flag:"id" help:"ID of the cache entry to restore." required:"true"`
+	Key          string `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
+	Store        string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
+	Format       string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
+	Paths        string `flag:"paths" help:"Paths within the cache archive to restore to the restore path."`
+	Organization string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
+	Branch       string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`
+	Pipeline     string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
+	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
+	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
@@ -34,20 +36,34 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 	span.SetAttributes(
 		attribute.String("key", cmd.Key),
-		attribute.StringSlice("paths", cmd.Paths),
+		attribute.String("paths", cmd.Paths),
 	)
 
-	_, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{Key: cmd.Key})
+	tkey, err := key.Template(cmd.ID, cmd.Key)
+	if err != nil {
+		return trace.NewError(span, "failed to template key: %w", err)
+	}
+
+	paths, err := checkPath(cmd.Paths)
+	if err != nil {
+		return trace.NewError(span, "failed to check paths: %w", err)
+	}
+
+	_, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{Key: tkey})
 	if err != nil {
 		return trace.NewError(span, "failed to retrieve cache: %w", err)
 	}
 
 	if !exists {
-		log.Warn().Str("key", cmd.Key).Msg("cache not found")
+		log.Warn().Str("key", tkey).Msg("cache not found")
 		fmt.Println(exists)
 
 		return nil
 	}
+
+	log.Info().Str("bucket_url", cmd.BucketURL).
+		Str("prefix", cmd.Prefix).
+		Msg("restoring cache from s3")
 
 	// upload the cache
 	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix)
@@ -64,10 +80,10 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	archiveFile := filepath.Join(tmpDir, cmd.Key)
+	archiveFile := filepath.Join(tmpDir, tkey)
 
 	// download the cache
-	archiveSize, err := blobs.Download(ctx, cmd.Key, archiveFile)
+	archiveSize, err := blobs.Download(ctx, tkey, archiveFile)
 	if err != nil {
 		return trace.NewError(span, "failed to download cache: %w", err)
 	}
@@ -81,10 +97,10 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		_ = archiveFileHandle.Close()
 	}()
 
-	log.Info().Strs("paths", cmd.Paths).Msg("extracting files")
+	log.Info().Strs("paths", paths).Msg("extracting files")
 
 	// extract the cache
-	err = archive.ExtractFiles(ctx, archiveFileHandle, archiveSize, cmd.Paths)
+	err = archive.ExtractFiles(ctx, archiveFileHandle, archiveSize, paths)
 	if err != nil {
 		return trace.NewError(span, "failed to extract archive: %w", err)
 	}

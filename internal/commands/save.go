@@ -17,16 +17,17 @@ import (
 )
 
 type SaveCmd struct {
-	Key          string   `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
-	Store        string   `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
-	Format       string   `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
-	Paths        []string `arg:"" name:"path" help:"Paths to remove."`
-	Organization string   `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG" required:"true"`
-	Branch       string   `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH" required:"true"`
-	Pipeline     string   `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG" required:"true"`
-	BucketURL    string   `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
-	Prefix       string   `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
-	Skip         bool     `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
+	ID           string `flag:"id" help:"ID of the cache entry to save." required:"true"`
+	Key          string `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
+	Store        string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
+	Format       string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
+	Paths        string `flag:"paths" help:"Paths to remove."`
+	Organization string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG" required:"true"`
+	Branch       string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH" required:"true"`
+	Pipeline     string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG" required:"true"`
+	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
+	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
+	Skip         bool   `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
@@ -37,7 +38,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	span.SetAttributes(
 		attribute.String("key", cmd.Key),
-		attribute.StringSlice("paths", cmd.Paths),
+		attribute.String("paths", cmd.Paths),
 		attribute.Bool("skip", cmd.Skip),
 	)
 
@@ -48,7 +49,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return nil
 	}
 
-	tkey, err := key.Template(cmd.Key)
+	tkey, err := key.Template(cmd.ID, cmd.Key)
 	if err != nil {
 		return trace.NewError(span, "failed to template key: %w", err)
 	}
@@ -69,15 +70,20 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	log.Printf("Cache peeked: %v", peekResp)
 
-	// create the cache
-	_, err = checkPathsExist(cmd.Paths)
+	paths, err := checkPath(cmd.Paths)
 	if err != nil {
 		return trace.NewError(span, "failed to check paths: %w", err)
 	}
 
+	// create the cache
+	_, err = checkPathsExist(paths)
+	if err != nil {
+		return trace.NewError(span, "failed to check paths exist: %w", err)
+	}
+
 	start := time.Now()
 
-	fileInfo, err := archive.BuildArchive(ctx, cmd.Paths, tkey)
+	fileInfo, err := archive.BuildArchive(ctx, paths, tkey)
 	if err != nil {
 		return fmt.Errorf("failed to build archive: %w", err)
 	}
@@ -95,7 +101,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		Compression:  cmd.Format,
 		FileSize:     int(fileInfo.Size),
 		Digest:       fmt.Sprintf("sha256:%s", fileInfo.Sha256sum), // "sha256:997cd98513730e9ca1beebf7f17d4625a968aabd",
-		Paths:        cmd.Paths,
+		Paths:        paths,
 		Platform:     fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		Pipeline:     cmd.Pipeline,
 		Branch:       cmd.Branch,
@@ -113,7 +119,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to create uploader: %w", err)
 	}
 
-	err = blobs.Upload(ctx, fileInfo.ArchivePath, cmd.Key)
+	err = blobs.Upload(ctx, fileInfo.ArchivePath, tkey)
 	if err != nil {
 		return trace.NewError(span, "failed to upload cache: %w", err)
 	}
