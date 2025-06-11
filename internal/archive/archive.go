@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -16,6 +17,15 @@ const (
 	bufferSize    = 1024 * 1024 * 20
 	skipOwnership = true
 )
+
+type ArchiveInfo struct {
+	ArchivePath    string
+	Sha256sum      string
+	Size           int64
+	WrittenBytes   int64
+	WrittenEntries int64
+	Duration       time.Duration
+}
 
 // isUnderHome checks if the given path is under the user's home directory.
 // It first gets the absolute path of the given path, then gets the user's

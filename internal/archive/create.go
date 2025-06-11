@@ -14,16 +14,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-type ArchiveInfo struct {
-	Stats       map[string]int64
-	ArchivePath string
-	Sha256sum   string
-	Size        int64
-}
-
 func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo, error) {
 	_, span := trace.Start(ctx, "BuildArchive")
 	defer span.End()
+
+	start := time.Now()
 
 	modified, err := time.Parse(time.RFC3339, modifiedEpoch)
 	if err != nil {
@@ -89,6 +84,8 @@ func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo
 		}
 	}
 
+	writtenBytes, writtenEntries := arc.Written()
+
 	err = arc.Close()
 	if err != nil {
 		return nil, fmt.Errorf("failed to close archive: %w", err)
@@ -105,9 +102,11 @@ func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo
 	)
 
 	return &ArchiveInfo{
-		ArchivePath: archiveFile.Name(),
-		Size:        stat.Size(),
-		Sha256sum:   checksummer.Sum(),
-		Stats:       map[string]int64{},
+		ArchivePath:    archiveFile.Name(),
+		Size:           stat.Size(),
+		Sha256sum:      checksummer.Sum(),
+		WrittenBytes:   writtenBytes,
+		WrittenEntries: writtenEntries,
+		Duration:       time.Since(start),
 	}, nil
 }

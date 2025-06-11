@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"time"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
@@ -81,19 +80,18 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to check paths exist: %w", err)
 	}
 
-	start := time.Now()
-
 	fileInfo, err := archive.BuildArchive(ctx, paths, tkey)
 	if err != nil {
 		return fmt.Errorf("failed to build archive: %w", err)
 	}
 
 	log.Info().
-		Str("path", fileInfo.ArchivePath).
 		Int64("size", fileInfo.Size).
-		Any("stats", fileInfo.Stats).
 		Str("sha256sum", fileInfo.Sha256sum).
-		Dur("duration_ms", time.Since(start)).
+		Dur("duration_ms", fileInfo.Duration).
+		Int64("entries", fileInfo.WrittenEntries).
+		Int64("bytes_written", fileInfo.WrittenBytes).
+		Float64("compression_ratio", compressionRatio(fileInfo)).
 		Msg("archive built")
 
 	createResp, err := globals.Client.CacheCreate(ctx, api.CacheCreateReq{
@@ -119,10 +117,17 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to create uploader: %w", err)
 	}
 
-	err = blobs.Upload(ctx, fileInfo.ArchivePath, tkey)
+	transferInfo, err := blobs.Upload(ctx, fileInfo.ArchivePath, tkey)
 	if err != nil {
 		return trace.NewError(span, "failed to upload cache: %w", err)
 	}
+
+	log.Info().
+		Int64("bytes_transferred", transferInfo.BytesTransferred).
+		Str("transfer_speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
+		Str("request_id", transferInfo.RequestID).
+		Dur("duration_ms", transferInfo.Duration).
+		Msg("Cache uploaded")
 
 	commitResp, err := globals.Client.CacheCommit(ctx, api.CacheCommitReq{
 		UploadID: createResp.UploadID,
