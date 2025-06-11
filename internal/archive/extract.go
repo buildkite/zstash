@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/klauspost/compress/zip"
 	"github.com/wolfeidau/quickzip"
@@ -14,17 +15,20 @@ import (
 	"github.com/buildkite/zstash/internal/trace"
 )
 
-func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths []string) error {
+func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths []string) (*ArchiveInfo, error) {
 	_, span := trace.Start(ctx, "ExtractFiles")
 	defer span.End()
+
+	start := time.Now()
+
 	extract, err := quickzip.NewExtractorFromReader(zipFile, zipFileLen)
 	if err != nil {
-		return fmt.Errorf("failed to create extractor: %w", err)
+		return nil, fmt.Errorf("failed to create extractor: %w", err)
 	}
 
 	mappings, err := PathsToMappings(paths)
 	if err != nil {
-		return fmt.Errorf("failed to create mappings: %w", err)
+		return nil, fmt.Errorf("failed to create mappings: %w", err)
 	}
 
 	err = extract.ExtractWithPathMapper(ctx, func(file *zip.File) (string, error) {
@@ -37,7 +41,7 @@ func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths
 		return "", fmt.Errorf("failed to find path mapping for: %s", file.Name)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to extract zip file: %w", err)
+		return nil, fmt.Errorf("failed to extract zip file: %w", err)
 	}
 
 	bytesExtracted, countExtracted := extract.Written()
@@ -48,5 +52,11 @@ func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths
 		attribute.Int64("bytesExtracted", bytesExtracted),
 	)
 
-	return nil
+	return &ArchiveInfo{
+		ArchivePath:    zipFile.Name(),
+		Size:           zipFileLen,
+		WrittenBytes:   bytesExtracted,
+		WrittenEntries: countExtracted,
+		Duration:       time.Since(start),
+	}, nil
 }

@@ -83,10 +83,17 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	archiveFile := filepath.Join(tmpDir, tkey)
 
 	// download the cache
-	archiveSize, err := blobs.Download(ctx, tkey, archiveFile)
+	transferInfo, err := blobs.Download(ctx, tkey, archiveFile)
 	if err != nil {
 		return trace.NewError(span, "failed to download cache: %w", err)
 	}
+
+	log.Info().
+		Int64("size", transferInfo.BytesTransferred).
+		Str("transfer_speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
+		Str("request_id", transferInfo.RequestID).
+		Dur("duration_ms", transferInfo.Duration).
+		Msg("cache downloaded")
 
 	// open the archive
 	archiveFileHandle, err := os.Open(archiveFile)
@@ -100,14 +107,30 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Info().Strs("paths", paths).Msg("extracting files")
 
 	// extract the cache
-	err = archive.ExtractFiles(ctx, archiveFileHandle, archiveSize, paths)
+	archiveInfo, err := archive.ExtractFiles(ctx, archiveFileHandle, transferInfo.BytesTransferred, paths)
 	if err != nil {
 		return trace.NewError(span, "failed to extract archive: %w", err)
 	}
+
+	log.Info().
+		Int64("size", archiveInfo.Size).
+		Dur("duration_ms", archiveInfo.Duration).
+		Int64("written_bytes", archiveInfo.WrittenBytes).
+		Int64("written_entries", archiveInfo.WrittenEntries).
+		Float64("compression_ratio", compressionRatio(archiveInfo)).
+		Msg("archive extracted")
 
 	// TODO: check if the cache entry is a fallback
 
 	fmt.Println("true") // write to stdout
 
 	return nil
+}
+
+// cacclute the compression ratio
+func compressionRatio(archiveInfo *archive.ArchiveInfo) float64 {
+	if archiveInfo.Size == 0 {
+		return 0.0
+	}
+	return float64(archiveInfo.WrittenBytes) / float64(archiveInfo.Size)
 }

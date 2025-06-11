@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go/tracing/smithyoteltracing"
 	"github.com/buildkite/zstash/internal/trace"
-	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -57,6 +56,115 @@ func NewS3Blob(ctx context.Context, s3url, prefix string) (*S3Blob, error) {
 	}, nil
 }
 
+// Upload uploads a file to S3
+func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*TransferInfo, error) {
+	ctx, span := trace.Start(ctx, "S3Blob.Upload")
+	defer span.End()
+
+	start := time.Now()
+
+	// Get the full key with prefix
+	fullKey := b.getFullKey(key)
+
+	// Open the file
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file %s: %w", filePath, err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	// stat the file to get its size
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file %s: %w", filePath, err)
+	}
+
+	// Upload the file to S3
+	result, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(b.bucketName),
+		Key:    aws.String(fullKey),
+		Body:   file,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload file to S3: %w", err)
+	}
+
+	requestID, _ := middleware.GetRequestIDMetadata(result.ResultMetadata)
+
+	bytesWritten := fileInfo.Size()
+
+	averageSpeed := float64(bytesWritten) / time.Since(start).Seconds() / 1000 / 1000 // Convert to MB/s
+
+	span.SetAttributes(
+		attribute.Int64("bytes_transferred", bytesWritten),
+		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
+		attribute.String("request_id", requestID),
+	)
+
+	return &TransferInfo{
+		BytesTransferred: bytesWritten,
+		TransferSpeed:    averageSpeed,
+		RequestID:        requestID,
+		Duration:         time.Since(start),
+	}, nil
+}
+
+// Download downloads a file from S3
+func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*TransferInfo, error) {
+	ctx, span := trace.Start(ctx, "S3Blob.Download")
+	defer span.End()
+
+	start := time.Now()
+
+	// Get the full key with prefix
+	fullKey := b.getFullKey(key)
+
+	// Get the object from S3
+	result, err := b.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(b.bucketName),
+		Key:    aws.String(fullKey),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to download file from S3: %w", err)
+	}
+	defer func() {
+		_ = result.Body.Close()
+	}()
+
+	requestID, _ := middleware.GetRequestIDMetadata(result.ResultMetadata)
+
+	// Create the destination file
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create destination file %s: %w", destPath, err)
+	}
+	defer func() {
+		_ = destFile.Close()
+	}()
+
+	// Write the S3 object to the file
+	bytesWritten, err := destFile.ReadFrom(result.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write file contents: %w", err)
+	}
+
+	averageSpeed := float64(bytesWritten) / time.Since(start).Seconds() / 1000 / 1000 // Convert to MB/s
+
+	span.SetAttributes(
+		attribute.Int64("bytes_transferred", bytesWritten),
+		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
+	)
+
+	return &TransferInfo{
+		BytesTransferred: bytesWritten,
+		TransferSpeed:    averageSpeed,
+		RequestID:        requestID,
+		Duration:         time.Since(start),
+	}, nil
+}
+
 // extractBucketName extracts the bucket name from an S3 URL
 func extractBucketName(s3url string) (string, error) {
 	if strings.HasPrefix(s3url, "s3://") {
@@ -93,105 +201,4 @@ func (b *S3Blob) getFullKey(key string) string {
 	key = strings.TrimPrefix(key, "/")
 	// Combine prefix and key
 	return path.Join(b.prefix, key)
-}
-
-// Upload uploads a file to S3
-func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) error {
-	ctx, span := trace.Start(ctx, "S3Blob.Upload")
-	defer span.End()
-
-	start := time.Now()
-
-	// Get the full key with prefix
-	fullKey := b.getFullKey(key)
-
-	// Open the file
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w", filePath, err)
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-
-	// stat the file to get its size
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat file %s: %w", filePath, err)
-	}
-
-	// Upload the file to S3
-	result, err := b.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(b.bucketName),
-		Key:    aws.String(fullKey),
-		Body:   file,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to upload file to S3: %w", err)
-	}
-
-	requestID, _ := middleware.GetRequestIDMetadata(result.ResultMetadata)
-
-	bytesWritten := fileInfo.Size()
-
-	averageSpeed := float64(bytesWritten) / time.Since(start).Seconds() / 1000 / 1000 // Convert to MB/s
-
-	span.SetAttributes(
-		attribute.Int64("bytes_written", bytesWritten),
-		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
-		attribute.String("request_id", requestID),
-	)
-
-	log.Info().Int64("bytes_written", bytesWritten).Str("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)).Msg("Uploaded file to S3")
-
-	return nil
-}
-
-// Download downloads a file from S3
-func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (int64, error) {
-	ctx, span := trace.Start(ctx, "S3Blob.Download")
-	defer span.End()
-
-	start := time.Now()
-
-	// Get the full key with prefix
-	fullKey := b.getFullKey(key)
-
-	// Get the object from S3
-	result, err := b.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(b.bucketName),
-		Key:    aws.String(fullKey),
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to download file from S3: %w", err)
-	}
-	defer func() {
-		_ = result.Body.Close()
-	}()
-
-	// Create the destination file
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create destination file %s: %w", destPath, err)
-	}
-	defer func() {
-		_ = destFile.Close()
-	}()
-
-	// Write the S3 object to the file
-	bytesWritten, err := destFile.ReadFrom(result.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to write file contents: %w", err)
-	}
-
-	averageSpeed := float64(bytesWritten) / time.Since(start).Seconds() / 1000 / 1000 // Convert to MB/s
-
-	span.SetAttributes(
-		attribute.Int64("bytes_written", bytesWritten),
-		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
-	)
-
-	log.Info().Int64("bytes_written", bytesWritten).Str("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)).Msg("Downloaded file from S3")
-
-	return bytesWritten, nil
 }
