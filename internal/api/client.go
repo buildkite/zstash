@@ -12,7 +12,6 @@ import (
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/google/go-querystring/query"
 	"github.com/rs/zerolog/log"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -28,6 +27,7 @@ type Client struct {
 
 type CacheCreateReq struct {
 	Key          string   `json:"key"`
+	FallbackKeys []string `json:"fallback_keys"`
 	Compression  string   `json:"compression"`
 	FileSize     int      `json:"file_size"`
 	Digest       string   `json:"digest"`
@@ -38,6 +38,18 @@ type CacheCreateReq struct {
 	Organization string   `json:"owner"`
 }
 
+type CacheRetrieveReq struct {
+	Key          string `url:"key"`
+	Branch       string `url:"branch"`
+	FallbackKeys string `url:"fallback_keys"`
+}
+
+type CacheRetrieveResp struct {
+	Multipart            bool     `json:"multipart"`
+	DownloadInstructions []string `json:"download_instructions"`
+	Message              string   `json:"message"`
+}
+
 type CacheCreateResp struct {
 	UploadID           string   `json:"upload_id"`
 	Multipart          bool     `json:"multipart"`
@@ -46,7 +58,8 @@ type CacheCreateResp struct {
 }
 
 type CachePeekReq struct {
-	Key string `url:"key"`
+	Key    string `url:"key"`
+	Branch string `url:"branch"`
 }
 
 type CachePeekResp struct {
@@ -63,22 +76,21 @@ type CacheCommitResp struct {
 func NewClient(ctx context.Context, version, endpoint, slug, token string) (Client, error) {
 	client := &http.Client{}
 
-	if token != "" {
-
-		transport := http.DefaultTransport
-
-		client.Transport = otelhttp.NewTransport(roundTripperFunc(
-			func(req *http.Request) (*http.Response, error) {
-				req = req.Clone(req.Context())
-				req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
-				req.Header.Set("User-Agent", fmt.Sprint("zstash/", version))
-				req.Header.Set("Accept", "application/json")
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-				return transport.RoundTrip(req)
-			},
-		))
+	if token == "" {
+		return Client{}, fmt.Errorf("buildkite agent access token is required")
 	}
+
+	client.Transport = roundTripperFunc(
+		func(req *http.Request) (*http.Response, error) {
+			req = req.Clone(req.Context())
+			req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
+			req.Header.Set("User-Agent", fmt.Sprint("zstash/", version))
+			req.Header.Set("Accept", "application/json")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+			return http.DefaultTransport.RoundTrip(req)
+		},
+	)
 
 	return Client{client: client, slug: slug, endpoint: endpoint}, nil
 }
@@ -161,16 +173,6 @@ func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCo
 	return resp, nil
 }
 
-type CacheRetrieveReq struct {
-	Key string `url:"key"`
-}
-
-type CacheRetrieveResp struct {
-	Multipart            bool     `json:"multipart"`
-	DownloadInstructions []string `json:"download_instructions"`
-	Message              string   `json:"message"`
-}
-
 func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCreateResp, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheCreate")
 	defer span.End()
@@ -220,7 +222,9 @@ func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (C
 	}
 
 	log.Info().Fields(map[string]any{
-		"resp": resp,
+		"resp":   resp,
+		"status": res.Status,
+		"code":   res.StatusCode,
 	}).Msg("Cache retrieved with the following parameters")
 
 	switch res.StatusCode {
@@ -264,6 +268,11 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 	if err != nil {
 		return nil, resp, trace.NewError(span, "failed to do request: %w", err)
 	}
+
+	if res.Body == http.NoBody {
+		return res, resp, nil
+	}
+
 	defer func() {
 		_ = res.Body.Close()
 	}()

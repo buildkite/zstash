@@ -26,7 +26,7 @@ type S3Blob struct {
 }
 
 // NewS3Blob creates a new S3Blob instance using an S3 URL and prefix
-func NewS3Blob(ctx context.Context, s3url, prefix string) (*S3Blob, error) {
+func NewS3Blob(ctx context.Context, s3url, prefix, s3Endpoint string) (*S3Blob, error) {
 	// Parse the S3 URL to extract the bucket name
 	// s3url format: s3://bucket-name or https://bucket-name.s3.region.amazonaws.com
 	bucketName, err := extractBucketName(s3url)
@@ -47,6 +47,12 @@ func NewS3Blob(ctx context.Context, s3url, prefix string) (*S3Blob, error) {
 	client := s3.NewFromConfig(cfg,
 		func(o *s3.Options) {
 			o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
+
+			if s3Endpoint != "" {
+				o.BaseEndpoint = aws.String(s3Endpoint)
+				o.Region = "us-east-1" // Default region, can be overridden
+				o.UsePathStyle = true  // Use path-style requests for S3
+			}
 		})
 
 	return &S3Blob{

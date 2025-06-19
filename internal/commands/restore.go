@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
@@ -18,6 +19,7 @@ import (
 type RestoreCmd struct {
 	ID           string `flag:"id" help:"ID of the cache entry to restore." required:"true"`
 	Key          string `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
+	FallbackKeys string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
 	Store        string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
 	Format       string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
 	Paths        string `flag:"paths" help:"Paths within the cache archive to restore to the restore path."`
@@ -26,6 +28,7 @@ type RestoreCmd struct {
 	Pipeline     string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
 	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
 	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
+	S3Endpoint   string `flag:"s3-endpoint" help:"The S3 endpoint to use." env:"BUILDKITE_CACHE_S3_ENDPOINT"`
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
@@ -37,6 +40,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	span.SetAttributes(
 		attribute.String("key", cmd.Key),
 		attribute.String("paths", cmd.Paths),
+		attribute.String("fallback_keys", cmd.FallbackKeys),
 	)
 
 	tkey, err := key.Template(cmd.ID, cmd.Key)
@@ -49,7 +53,17 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to check paths: %w", err)
 	}
 
-	_, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{Key: tkey})
+	fallbackKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys)
+	if err != nil {
+		return trace.NewError(span, "failed to restore keys: %w", err)
+	}
+
+	log.Info().
+		Str("key", tkey).
+		Strs("fallback_keys", fallbackKeys).
+		Msg("calling cache retrieve")
+
+	_, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{Key: tkey, Branch: cmd.Branch, FallbackKeys: strings.Join(fallbackKeys, ",")})
 	if err != nil {
 		return trace.NewError(span, "failed to retrieve cache: %w", err)
 	}
@@ -66,7 +80,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Msg("restoring cache from s3")
 
 	// upload the cache
-	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix)
+	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix, cmd.S3Endpoint)
 	if err != nil {
 		return trace.NewError(span, "failed to create uploader: %w", err)
 	}
@@ -127,7 +141,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-// cacclute the compression ratio
+// calculate the compression ratio
 func compressionRatio(archiveInfo *archive.ArchiveInfo) float64 {
 	if archiveInfo.Size == 0 {
 		return 0.0
