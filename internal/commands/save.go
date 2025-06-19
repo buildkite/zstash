@@ -18,6 +18,7 @@ import (
 type SaveCmd struct {
 	ID           string `flag:"id" help:"ID of the cache entry to save." required:"true"`
 	Key          string `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
+	FallbackKeys string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
 	Store        string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
 	Format       string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
 	Paths        string `flag:"paths" help:"Paths to remove."`
@@ -27,6 +28,7 @@ type SaveCmd struct {
 	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
 	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
 	Skip         bool   `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
+	S3Endpoint   string `flag:"s3-endpoint" help:"The S3 endpoint to use." env:"BUILDKITE_CACHE_S3_ENDPOINT"`
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
@@ -36,7 +38,9 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Info().Str("version", globals.Version).Msg("Running SaveCmd")
 
 	span.SetAttributes(
+		attribute.String("id", cmd.ID),
 		attribute.String("key", cmd.Key),
+		attribute.String("fallback_keys", cmd.FallbackKeys),
 		attribute.String("paths", cmd.Paths),
 		attribute.Bool("skip", cmd.Skip),
 	)
@@ -55,7 +59,8 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	// peek at the cache registry
 	peekResp, exists, err := globals.Client.CachePeekExists(ctx, api.CachePeekReq{
-		Key: tkey,
+		Key:    tkey,
+		Branch: cmd.Branch,
 	})
 	if err != nil {
 		return trace.NewError(span, "failed to peek cache: %w", err)
@@ -74,6 +79,11 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to check paths: %w", err)
 	}
 
+	fallbackKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys)
+	if err != nil {
+		return trace.NewError(span, "failed to restore keys: %w", err)
+	}
+
 	// create the cache
 	_, err = checkPathsExist(paths)
 	if err != nil {
@@ -86,6 +96,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	}
 
 	log.Info().
+		Str("key", tkey).
 		Int64("size", fileInfo.Size).
 		Str("sha256sum", fileInfo.Sha256sum).
 		Dur("duration_ms", fileInfo.Duration).
@@ -96,6 +107,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	createResp, err := globals.Client.CacheCreate(ctx, api.CacheCreateReq{
 		Key:          tkey,
+		FallbackKeys: fallbackKeys,
 		Compression:  cmd.Format,
 		FileSize:     int(fileInfo.Size),
 		Digest:       fmt.Sprintf("sha256:%s", fileInfo.Sha256sum), // "sha256:997cd98513730e9ca1beebf7f17d4625a968aabd",
@@ -112,7 +124,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Info().Str("upload_id", createResp.UploadID).Msg("Cache created")
 
 	// upload the cache
-	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix)
+	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix, cmd.S3Endpoint)
 	if err != nil {
 		return trace.NewError(span, "failed to create uploader: %w", err)
 	}
