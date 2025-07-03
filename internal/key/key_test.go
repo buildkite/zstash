@@ -46,7 +46,7 @@ func TestTemplate(t *testing.T) {
 			id:   "go",
 			key:  `{{ id }}-{{checksum "go.mod"}}`,
 			setup: func() error {
-				return os.WriteFile("go.mod", []byte("test content"), 0644)
+				return os.WriteFile("go.mod", []byte("test content"), 0600)
 			},
 			cleanup: func() {
 				_ = os.Remove("testfile")
@@ -58,7 +58,7 @@ func TestTemplate(t *testing.T) {
 			id:   "go",
 			key:  `{{ id }}-{{ agent.os }}-{{ agent.arch }}-{{checksum "go.mod"}}`,
 			setup: func() error {
-				return os.WriteFile("go.mod", []byte("test content"), 0644)
+				return os.WriteFile("go.mod", []byte("test content"), 0600)
 			},
 			cleanup: func() {
 				_ = os.Remove("testfile")
@@ -72,10 +72,10 @@ func TestTemplate(t *testing.T) {
 				if err := os.Mkdir("integration-tests", 0755); err != nil {
 					return err
 				}
-				if err := os.WriteFile(filepath.Join("integration-tests", "go.mod"), []byte("test content"), 0644); err != nil {
+				if err := os.WriteFile(filepath.Join("integration-tests", "go.mod"), []byte("test content"), 0600); err != nil {
 					return err
 				}
-				return os.WriteFile("go.mod", []byte("test content"), 0644)
+				return os.WriteFile("go.mod", []byte("test content"), 0600)
 			},
 			cleanup: func() {
 				_ = os.Remove("testfile")
@@ -90,7 +90,7 @@ func TestTemplate(t *testing.T) {
 				if err := os.Mkdir("testdir", 0755); err != nil {
 					return err
 				}
-				return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0644)
+				return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0600)
 			},
 			cleanup: func() {
 				_ = os.RemoveAll("testdir")

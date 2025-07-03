@@ -1,41 +1,63 @@
----
 agents:
   queue: hosted
+
+cache:
+  name: "golang-cache"
+  paths:
+    - "~/gocache"
+    - "~/gomodcache"
+  size: "100g"
+
 steps:
-  - group: ':mag: QA'
-    id: quality-assurance
+  - group: ":mag: Quality Checks"
+    key: quality-checks
     steps:
-    - key: lint
-      label: ':golangci-lint: lint'
-      command: golangci-lint run --timeout 2m0s
+    - name: ":golangci-lint: lint"
+      command: golangci-lint run --verbose --timeout 3m
       plugins:
-        - docker-compose#v5.3.0:
-            run: app
-    - key: test
-      label: ':golang: test'
-      env: {}
-      command: 
-        - go test -v -count=1 -cover ./... -coverprofile=coverage.txt -covermode=atomic
+        - docker-compose#v5.10.0:
+            config: .buildkite/docker-compose.yaml
+            run: golangci-lint
+            tty: true
+            progress: plain
+
+    - name: ":go: test"
       artifact_paths:
-        - 'coverage.txt'
+        - cover-tree.svg
+      commands:
+        - go test -coverprofile cover.out ./...
+        - go run github.com/nikolaydubina/go-cover-treemap@latest -coverprofile cover.out > cover-tree.svg
+        - echo '<details><summary>Coverage tree map</summary><img src="artifact://cover-tree.svg" alt="Test coverage tree map" width="70%"></details>' | buildkite-agent annotate --style "info"
       plugins:
-        - docker-compose#v5.3.0:
-            run: app
-    - key: security_scan
-      label: ':trivy: security scan'
-      command: trivy fs .
-      plugins:
-        - docker-compose#v5.3.0:
-            run: app
-  - key: build-release-snapshot
-    env: 
-      CGO_ENABLED: 0
-      TESTING_ENV: ci
-    label: ':golang: build'
-    command: goreleaser build --snapshot --clean --single-target
+        - docker-compose#v5.10.0:
+            config: .buildkite/docker-compose.yaml
+            run: golangci-lint
+            tty: true
+            mount-buildkite-agent: true
+            progress: plain
+
+  - label: ":terminal: build ({{matrix}})"
+    depends_on: quality-checks
+    matrix:
+      - "darwin"
+      - "linux"
+      - "windows"
     artifact_paths:
-      - 'dist/**/*'
+      - dist/**/*
     plugins:
-      - docker-compose#v5.3.0:
-          run: app
-    depends_on: quality-assurance
+      - docker-compose#v5.10.0:
+          command:
+            - .buildkite/release.sh
+            - release
+            - --clean
+            - --snapshot
+            - --split
+          config: .buildkite/docker-compose.yaml
+          entrypoint: /bin/bash
+          env:
+            - GOOS={{matrix}}
+          mount-buildkite-agent: true
+          run: goreleaser
+          shell: false
+          tty: true
+          progress: plain
