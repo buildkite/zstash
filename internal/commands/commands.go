@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/buildkite/zstash/internal/api"
+	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/key"
 	"github.com/rs/zerolog/log"
 )
@@ -13,6 +14,7 @@ type Globals struct {
 	Debug   bool
 	Version string
 	Client  api.Client
+	Printer *console.Printer
 }
 
 func checkPath(path string) ([]string, error) {
@@ -31,14 +33,14 @@ func restoreKeys(id, restoreKeyList string) ([]string, error) {
 
 	restoreKeys := make([]string, len(restoreKeyTemplates))
 
-	log.Info().Str("id", id).Strs("restore_keys", restoreKeyTemplates).Msg("templating restore keys")
+	log.Debug().Str("id", id).Strs("restore_keys", restoreKeyTemplates).Msg("templating restore keys")
 
 	for n, restoreKeyTemplate := range restoreKeyTemplates {
 
 		// trim quotes and whitespace
 		restoreKeyTemplate = strings.Trim(restoreKeyTemplate, "\"' \t")
 
-		log.Info().Str("restore_key_template", restoreKeyTemplate).Msg("templating restore key")
+		log.Debug().Str("restore_key_template", restoreKeyTemplate).Msg("templating restore key")
 
 		restoreKey, err := key.Template(id, restoreKeyTemplate)
 		if err != nil {

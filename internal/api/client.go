@@ -73,12 +73,8 @@ type CacheCommitResp struct {
 	Message string `json:"message"`
 }
 
-func NewClient(ctx context.Context, version, endpoint, slug, token string) (Client, error) {
+func NewClient(ctx context.Context, version, endpoint, slug, token string) Client {
 	client := &http.Client{}
-
-	if token == "" {
-		return Client{}, fmt.Errorf("buildkite agent access token is required")
-	}
 
 	client.Transport = roundTripperFunc(
 		func(req *http.Request) (*http.Response, error) {
@@ -92,7 +88,7 @@ func NewClient(ctx context.Context, version, endpoint, slug, token string) (Clie
 		},
 	)
 
-	return Client{client: client, slug: slug, endpoint: endpoint}, nil
+	return Client{client: client, slug: slug, endpoint: endpoint}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
