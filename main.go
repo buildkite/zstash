@@ -57,7 +57,8 @@ func main() {
 	// create a http client
 	client, err := api.NewClient(ctx, version, cli.Endpoint, cli.RegistrySlug, cli.Token)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create API client")
+		log.Error().Err(err).Msg("failed to create API client")
+		return // we are done
 	}
 
 	if cli.Debug {
