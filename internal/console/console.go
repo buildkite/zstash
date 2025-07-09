@@ -30,24 +30,24 @@ func NewPrinter(stream io.Writer) *Printer {
 	}
 }
 
-func (p *Printer) Info(emoji string, format string, a ...any) (n int, err error) {
+func (p *Printer) Info(emoji string, format string, a ...any) {
 	prefix := p.indent + withEmoji(emoji)
-	return fmt.Fprintf(p.stream, prefix+format+"\n", a...)
+	_, _ = fmt.Fprintf(p.stream, prefix+format+"\n", a...)
 }
 
-func (p *Printer) Success(emoji string, format string, a ...any) (n int, err error) {
-	prefix := p.indent + withEmoji(emoji)
-	return fmt.Fprintln(p.stream, successStyle.Render(fmt.Sprintf(prefix+format, a...)))
+func (p *Printer) Success(emoji string, format string, a ...any) {
+	format = p.indent + withEmoji(emoji) + format
+	_, _ = fmt.Fprintln(p.stream, successStyle.Render(fmt.Sprintf(format, a...)))
 }
 
-func (p *Printer) Warn(emoji string, format string, a ...any) (n int, err error) {
-	prefix := p.indent + withEmoji(emoji)
-	return fmt.Fprintln(p.stream, warnStyle.Render(fmt.Sprintf(prefix+format, a...)))
+func (p *Printer) Warn(emoji string, format string, a ...any) {
+	format = p.indent + withEmoji(emoji) + format
+	_, _ = fmt.Fprintln(p.stream, warnStyle.Render(fmt.Sprintf(format, a...)))
 }
 
-func (p *Printer) Error(emoji string, format string, a ...any) (n int, err error) {
-	prefix := p.indent + withEmoji(emoji)
-	return fmt.Fprintln(p.stream, errorStyle.Render(fmt.Sprintf(prefix+format, a...)))
+func (p *Printer) Error(emoji string, format string, a ...any) {
+	format = p.indent + withEmoji(emoji) + format
+	_, _ = fmt.Fprintln(p.stream, errorStyle.Render(fmt.Sprintf(format, a...)))
 }
 
 func withEmoji(emoji string) string {

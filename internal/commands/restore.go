@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +114,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to download cache: %w", err)
 	}
 
-	globals.Printer.Info("✅", "Downloaded cache for key: %s", humanize.Bytes(uint64(transferInfo.BytesTransferred)))
+	globals.Printer.Info("✅", "Downloaded cache for key: %s", humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)))
 
 	log.Debug().
 		Int64("size", transferInfo.BytesTransferred).
@@ -154,8 +155,8 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	t := table.New().
 		Border(lipgloss.NormalBorder()).
 		Row("Key", cacheKey).
-		Row("Size", humanize.Bytes(uint64(archiveInfo.Size))).
-		Row("Written Bytes", humanize.Bytes(uint64(archiveInfo.WrittenBytes))).
+		Row("Size", humanize.Bytes(Int64ToUint64(archiveInfo.Size))).
+		Row("Written Bytes", humanize.Bytes(Int64ToUint64(archiveInfo.WrittenBytes))).
 		Row("Written Entries", fmt.Sprintf("%d", archiveInfo.WrittenEntries)).
 		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(archiveInfo))).
 		Row("Duration", archiveInfo.Duration.String()).
@@ -176,4 +177,14 @@ func compressionRatio(archiveInfo *archive.ArchiveInfo) float64 {
 		return 0.0
 	}
 	return float64(archiveInfo.WrittenBytes) / float64(archiveInfo.Size)
+}
+
+func Int64ToUint64(x int64) uint64 {
+	if x < 0 {
+		return 0
+	}
+	if x == math.MaxInt64 {
+		return math.MaxUint64
+	}
+	return uint64(x)
 }

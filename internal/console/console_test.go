@@ -1,28 +1,31 @@
 package console
 
 import (
-	"os"
+	"bytes"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPinter(t *testing.T) {
-	printer := NewPrinter(os.Stdout)
+	assert := require.New(t)
+
+	buf := new(bytes.Buffer)
+
+	printer := NewPrinter(buf)
 
 	// Test Info
-	n, err := printer.Info("ℹ️", "This is an info message: %s", "test")
-	if err != nil {
-		t.Errorf("Info failed: %v", err)
-	}
-	if n <= 0 {
-		t.Error("Info did not write any bytes")
-	}
+	printer.Info("ℹ️", "This is an info message: %s", "test")
+
+	assert.Contains(buf.String(), "ℹ️ This is an info message: test")
+
+	buf = new(bytes.Buffer)
+
+	printer = NewPrinter(buf)
 
 	// Test Warn
-	n, err = printer.Warn("⚠️", "This is a warning message: %s", "test")
-	if err != nil {
-		t.Errorf("Warn failed: %v", err)
-	}
-	if n <= 0 {
-		t.Error("Warn did not write any bytes")
-	}
+	printer.Warn("⚠️", "This is a warning message: %s", "test")
+
+	assert.Contains(buf.String(), "⚠️ This is a warning message: test")
+
 }

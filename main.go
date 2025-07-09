@@ -76,5 +76,4 @@ func main() {
 	cmd.FatalIfErrorf(err)
 
 	printer.Info("✅", "%s completed successfully in %s", cmd.Command(), time.Since(start).String())
-	// log.Info().Str("command", cmd.Command()).Str("duration", time.Since(start).String()).Msg("command completed")
 }
