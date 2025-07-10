@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPinter(t *testing.T) {
+func TestPrinter(t *testing.T) {
 	assert := require.New(t)
 
 	buf := new(bytes.Buffer)

@@ -114,7 +114,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to download cache: %w", err)
 	}
 
-	globals.Printer.Info("✅", "Downloaded cache for key: %s", humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)))
+	globals.Printer.Info("✅", "Downloaded cache size: %s", humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)))
 
 	log.Debug().
 		Int64("size", transferInfo.BytesTransferred).
@@ -150,8 +150,6 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Float64("compression_ratio", compressionRatio(archiveInfo)).
 		Msg("archive extracted")
 
-	// Title("Cache Restore Summary").
-	// TitleStyle(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")))
 	t := table.New().
 		Border(lipgloss.NormalBorder()).
 		Row("Key", cacheKey).

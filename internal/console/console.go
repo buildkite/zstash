@@ -3,7 +3,6 @@ package console
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -21,9 +20,6 @@ type Printer struct {
 
 // NewPrinter creates a new Printer instance with the specified output stream.
 func NewPrinter(stream io.Writer) *Printer {
-
-	os.Setenv("CLICOLOR_FORCE", "1")
-
 	return &Printer{
 		stream: stream,
 		indent: "  ",
