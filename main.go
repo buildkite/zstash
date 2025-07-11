@@ -9,6 +9,7 @@ import (
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/commands"
+	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -43,6 +44,11 @@ func main() {
 		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml"),
 		kong.BindTo(ctx, (*context.Context)(nil)))
 
+	// check the token is set
+	if cli.Token == "" {
+		log.Fatal().Msg("missing token, please set the BUILDKITE_AGENT_ACCESS_TOKEN environment variable")
+	}
+
 	tp, err := trace.NewProvider(ctx, cli.TraceExporter, "github.com/buildkite/zstash", version)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create trace provider")
@@ -55,21 +61,19 @@ func main() {
 	defer span.End()
 
 	// create a http client
-	client, err := api.NewClient(ctx, version, cli.Endpoint, cli.RegistrySlug, cli.Token)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to create API client")
-		return // we are done
-	}
+	client := api.NewClient(ctx, version, cli.Endpoint, cli.RegistrySlug, cli.Token)
+
+	printer := console.NewPrinter(os.Stderr)
 
 	if cli.Debug {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.DebugLevel)
 	} else {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.InfoLevel)
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
-	log.Info().Str("command", cmd.Command()).Str("duration", time.Since(start).String()).Msg("command completed")
+	printer.Info("✅", "%s completed successfully in %s", cmd.Command(), time.Since(start).String())
 }
