@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,10 @@ import (
 const (
 	CacheRegistryNotFound = "Cache registry not found"
 	CacheEntryNotFound    = "Cache entry not found"
+)
+
+var (
+	ErrCacheEntryNotFound = errors.New("cache entry not found")
 )
 
 type Client struct {
@@ -121,6 +126,10 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 
 	res, resp, err := doRequest[any, CachePeekResp](ctx, c.client, http.MethodGet, u.String(), nil)
 	if err != nil {
+		if errors.Is(err, ErrCacheEntryNotFound) {
+			return resp, false, nil
+		}
+
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
 
@@ -212,8 +221,12 @@ func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (C
 
 	log.Info().Str("url", u.String()).Msg("Cache retrieve URL")
 
-	res, resp, err := doRequest[CacheRetrieveReq, CacheRetrieveResp](ctx, c.client, http.MethodGet, u.String(), &retrieve)
+	res, resp, err := doRequest[CacheRetrieveReq, CacheRetrieveResp](ctx, c.client, http.MethodGet, u.String(), nil)
 	if err != nil {
+		if errors.Is(err, ErrCacheEntryNotFound) {
+			return resp, false, nil
+		}
+
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
 
@@ -247,7 +260,8 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 
 	var bodyrdr io.Reader = http.NoBody
 
-	if body != nil {
+	// ONLY set body if method is PUT or POST
+	if method == http.MethodPut || method == http.MethodPost {
 		data, err := json.Marshal(body)
 		if err != nil {
 			return nil, resp, trace.NewError(span, "failed to marshal request body: %w", err)
@@ -266,6 +280,10 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		if res.StatusCode == http.StatusNotFound {
+			return res, resp, ErrCacheEntryNotFound
+		}
+
 		return res, resp, trace.NewError(span, "request failed with status: %s", res.Status)
 	}
 
