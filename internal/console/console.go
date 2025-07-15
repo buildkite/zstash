@@ -8,42 +8,47 @@ import (
 )
 
 var (
-	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("32"))
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("31"))
+	infoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("32"))  // blue
+	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber/orange
+	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34"))  // green
+	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
 )
 
 type Printer struct {
-	stream io.Writer
-	indent string
+	stream   io.Writer
+	indent   string
+	renderer *lipgloss.Renderer
 }
 
 // NewPrinter creates a new Printer instance with the specified output stream.
 func NewPrinter(stream io.Writer) *Printer {
 	return &Printer{
-		stream: stream,
-		indent: "  ",
+		stream:   stream,
+		indent:   "  ",
+		renderer: lipgloss.NewRenderer(stream),
 	}
 }
 
 func (p *Printer) Info(emoji string, format string, a ...any) {
-	prefix := p.indent + withEmoji(emoji)
-	_, _ = fmt.Fprintf(p.stream, prefix+format+"\n", a...)
+	p.printWithStyle(infoStyle, emoji, format, a...)
 }
 
 func (p *Printer) Success(emoji string, format string, a ...any) {
-	format = p.indent + withEmoji(emoji) + format
-	_, _ = fmt.Fprintln(p.stream, successStyle.Render(fmt.Sprintf(format, a...)))
+	p.printWithStyle(successStyle, emoji, format, a...)
 }
 
 func (p *Printer) Warn(emoji string, format string, a ...any) {
-	format = p.indent + withEmoji(emoji) + format
-	_, _ = fmt.Fprintln(p.stream, warnStyle.Render(fmt.Sprintf(format, a...)))
+	p.printWithStyle(warnStyle, emoji, format, a...)
 }
 
 func (p *Printer) Error(emoji string, format string, a ...any) {
-	format = p.indent + withEmoji(emoji) + format
-	_, _ = fmt.Fprintln(p.stream, errorStyle.Render(fmt.Sprintf(format, a...)))
+	p.printWithStyle(errorStyle, emoji, format, a...)
+}
+
+func (p *Printer) printWithStyle(style lipgloss.Style, emoji string, format string, a ...any) {
+	formattedMessage := p.indent + withEmoji(emoji) + format
+	styledOutput := p.renderer.NewStyle().Inherit(style).Render(fmt.Sprintf(formattedMessage, a...))
+	_, _ = fmt.Fprintln(p.stream, styledOutput)
 }
 
 func withEmoji(emoji string) string {

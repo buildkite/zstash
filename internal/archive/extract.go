@@ -8,11 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/buildkite/zstash/internal/trace"
 	"github.com/klauspost/compress/zip"
 	"github.com/wolfeidau/quickzip"
 	"go.opentelemetry.io/otel/attribute"
-
-	"github.com/buildkite/zstash/internal/trace"
 )
 
 func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths []string) (*ArchiveInfo, error) {
