@@ -19,13 +19,19 @@ linters:
       - third_party$
       - builtin$
       - examples$
-    linters:
-      gocritic:
-        - "gocritic:exitAfterDefer"
 formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
   exclusions:
     generated: lax
     paths:
       - third_party$
       - builtin$
       - examples$
+

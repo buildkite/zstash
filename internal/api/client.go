@@ -265,12 +265,18 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 		return nil, resp, trace.NewError(span, "failed to do request: %w", err)
 	}
 
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return res, resp, trace.NewError(span, "request failed with status: %s", res.Status)
+	}
+
 	if res.Body == http.NoBody {
 		return res, resp, nil
 	}
 
 	defer func() {
-		_ = res.Body.Close()
+		if res != nil && res.Body != nil {
+			_ = res.Body.Close()
+		}
 	}()
 
 	// read the response body
