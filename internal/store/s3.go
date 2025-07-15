@@ -48,6 +48,7 @@ func NewS3Blob(ctx context.Context, s3url, prefix, s3Endpoint string) (*S3Blob, 
 		func(o *s3.Options) {
 			o.TracerProvider = smithyoteltracing.Adapt(otel.GetTracerProvider())
 
+			// used for local testing or custom S3 endpoints
 			if s3Endpoint != "" {
 				o.BaseEndpoint = aws.String(s3Endpoint)
 				o.Region = "us-east-1" // Default region, can be overridden

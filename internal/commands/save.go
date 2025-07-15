@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/key"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
+	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -47,7 +51,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	// check if the cache is enabled
 	if cmd.Skip {
-		log.Info().Msg("Skipping cache save")
+		globals.Printer.Info("⏭️", "Skipping cache save for id: %s", cmd.ID)
 		fmt.Println("false") // write to stdout
 		return nil
 	}
@@ -57,8 +61,11 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to template key: %w", err)
 	}
 
+	globals.Printer.Info("💾", "Starting cache save for id: %s", cmd.ID)
+	globals.Printer.Info("🔍", "Checking if cache already exists for key: %s", tkey)
+
 	// peek at the cache registry
-	peekResp, exists, err := globals.Client.CachePeekExists(ctx, api.CachePeekReq{
+	_, exists, err := globals.Client.CachePeekExists(ctx, api.CachePeekReq{
 		Key:    tkey,
 		Branch: cmd.Branch,
 	})
@@ -67,12 +74,12 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	}
 
 	if exists {
-		log.Printf("Cache already exists: %s", peekResp.Message)
+		globals.Printer.Success("✅", "Cache already exists for key: %s", tkey)
 		fmt.Println("true") // write to stdout
 		return nil
 	}
 
-	log.Printf("Cache peeked: %v", peekResp)
+	globals.Printer.Info("📦", "Creating new cache entry for key: %s", tkey)
 
 	paths, err := checkPath(cmd.Paths)
 	if err != nil {
@@ -90,10 +97,16 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to check paths exist: %w", err)
 	}
 
+	globals.Printer.Info("🗜️", "Building archive for paths: %v", paths)
+
 	fileInfo, err := archive.BuildArchive(ctx, paths, tkey)
 	if err != nil {
 		return fmt.Errorf("failed to build archive: %w", err)
 	}
+
+	globals.Printer.Success("✅", "Archive built successfully: %s (%s)",
+		humanize.Bytes(Int64ToUint64(fileInfo.Size)),
+		humanize.Bytes(Int64ToUint64(fileInfo.WrittenBytes)))
 
 	log.Info().
 		Str("key", tkey).
@@ -121,7 +134,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to create cache: %w", err)
 	}
 
-	log.Info().Str("upload_id", createResp.UploadID).Msg("Cache created")
+	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", createResp.UploadID)
 
 	// upload the cache
 	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix, cmd.S3Endpoint)
@@ -129,10 +142,16 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to create uploader: %w", err)
 	}
 
+	globals.Printer.Info("⬆️", "Uploading cache archive to S3...")
+
 	transferInfo, err := blobs.Upload(ctx, fileInfo.ArchivePath, tkey)
 	if err != nil {
 		return trace.NewError(span, "failed to upload cache: %w", err)
 	}
+
+	globals.Printer.Success("✅", "Upload completed: %s at %.2fMB/s",
+		humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)),
+		transferInfo.TransferSpeed)
 
 	log.Info().
 		Int64("bytes_transferred", transferInfo.BytesTransferred).
@@ -148,7 +167,27 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to commit cache: %w", err)
 	}
 
-	log.Printf("Cache committed: %v", commitResp)
+	log.Debug().Str("message", commitResp.Message).
+		Msg("Cache committed successfully")
+
+	globals.Printer.Success("🎉", "Cache committed successfully")
+
+	// Create summary table
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		Row("Key", tkey).
+		Row("Archive Size", humanize.Bytes(Int64ToUint64(fileInfo.Size))).
+		Row("Written Bytes", humanize.Bytes(Int64ToUint64(fileInfo.WrittenBytes))).
+		Row("Written Entries", fmt.Sprintf("%d", fileInfo.WrittenEntries)).
+		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(fileInfo))).
+		Row("Build Duration", fileInfo.Duration.String()).
+		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
+		Row("Upload Duration", transferInfo.Duration.String()).
+		Row("Paths", strings.Join(paths, ", "))
+
+	globals.Printer.Info("📊", "Cache save summary:\n%s", t.Render())
+
+	fmt.Println("true") // write to stdout
 
 	return nil
 }
