@@ -32,7 +32,6 @@ type SaveCmd struct {
 	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
 	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
 	Skip         bool   `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
-	S3Endpoint   string `flag:"s3-endpoint" help:"The S3 endpoint to use." env:"BUILDKITE_CACHE_S3_ENDPOINT"`
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
@@ -137,7 +136,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", createResp.UploadID)
 
 	// upload the cache
-	blobs, err := store.NewS3Blob(ctx, cmd.BucketURL, cmd.Prefix, cmd.S3Endpoint)
+	blobs, err := store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
 	if err != nil {
 		return trace.NewError(span, "failed to create uploader: %w", err)
 	}
