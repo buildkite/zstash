@@ -114,7 +114,9 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to download cache: %w", err)
 	}
 
-	globals.Printer.Info("✅", "Downloaded cache size: %s", humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)))
+	globals.Printer.Success("✅", "Download completed: %s at %.2fMB/s",
+		humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)),
+		transferInfo.TransferSpeed)
 
 	log.Debug().
 		Int64("size", transferInfo.BytesTransferred).
@@ -157,6 +159,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Row("Written Bytes", humanize.Bytes(Int64ToUint64(archiveInfo.WrittenBytes))).
 		Row("Written Entries", fmt.Sprintf("%d", archiveInfo.WrittenEntries)).
 		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(archiveInfo))).
+		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
 		Row("Duration", archiveInfo.Duration.String()).
 		Row("Paths", strings.Join(paths, ", "))
 
