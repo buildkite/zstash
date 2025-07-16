@@ -102,7 +102,7 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 
 	bytesWritten := fileInfo.Size()
 
-	averageSpeed := float64(bytesWritten) / time.Since(start).Seconds() / 1000 / 1000 // Convert to MB/s
+	averageSpeed := calculateTransferSpeedMBps(bytesWritten, time.Since(start))
 
 	span.SetAttributes(
 		attribute.Int64("bytes_transferred", bytesWritten),
@@ -157,7 +157,7 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		return nil, fmt.Errorf("failed to write file contents: %w", err)
 	}
 
-	averageSpeed := float64(bytesWritten) / time.Since(start).Seconds() / 1000 / 1000 // Convert to MB/s
+	averageSpeed := calculateTransferSpeedMBps(bytesWritten, time.Since(start))
 
 	span.SetAttributes(
 		attribute.Int64("bytes_transferred", bytesWritten),
@@ -208,4 +208,10 @@ func (b *S3Blob) getFullKey(key string) string {
 	key = strings.TrimPrefix(key, "/")
 	// Combine prefix and key
 	return path.Join(b.prefix, key)
+}
+
+// calculateTransferSpeedMBps calculates transfer speed in MB/s (decimal megabytes)
+// using the formula: bytes / duration_in_seconds / 1,000,000
+func calculateTransferSpeedMBps(bytes int64, duration time.Duration) float64 {
+	return float64(bytes) / duration.Seconds() / 1000 / 1000
 }
