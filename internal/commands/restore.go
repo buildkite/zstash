@@ -22,6 +22,11 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
+const (
+	CacheRestoreHit  = "true"
+	CacheRestoreMiss = "false"
+)
+
 type RestoreCmd struct {
 	ID           string `flag:"id" help:"ID of the cache entry to restore." required:"true"`
 	Key          string `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
@@ -65,7 +70,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 	if !cacheResult.exists {
 		globals.Printer.Warn("💨", "Cache miss for key: %s", data.cacheKey)
-		fmt.Println(cacheResult.exists)
+		fmt.Println(CacheRestoreMiss)
 
 		return nil
 	}
@@ -112,12 +117,12 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	globals.Printer.Info("📊", "Cache restore summary:\n%s", t.Render())
 
 	if cacheResult.fallback {
-		fmt.Println("false") // write to stdout
+		fmt.Println(CacheRestoreMiss) // write to stdout
 		return nil
 	}
 
 	// If we reach here, it means the restore was successful and we indicate that we HIT
-	fmt.Println("true") // write to stdout
+	fmt.Println(CacheRestoreHit) // write to stdout
 
 	return nil
 }
@@ -211,7 +216,10 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, span oteltrace.Span, c
 
 	transferInfo, err := blobs.Download(ctx, cacheKey, archiveFile)
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		// Clean up temporary directory if download fails
+		if err := os.RemoveAll(tmpDir); err != nil {
+			log.Error().Err(err).Str("tmpDir", tmpDir).Msg("failed to clean up temporary directory")
+		}
 		return nil, trace.NewError(span, "failed to download cache: %w", err)
 	}
 

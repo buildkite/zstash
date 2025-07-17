@@ -51,7 +51,7 @@ type CacheRetrieveReq struct {
 }
 
 type CacheRetrieveResp struct {
-	Key                  string    `json:"key"`      // The key of the cache entry, we MUST to cater for fallbacks
+	Key                  string    `json:"key"`      // The key of the cache entry, we MUST use this in rest of the restore process to cater for fallbacks
 	Fallback             bool      `json:"fallback"` // Indicates if this is a fallback cache entry
 	ExpiresAt            time.Time `json:"expires_at"`
 	Multipart            bool      `json:"multipart"`
