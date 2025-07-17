@@ -28,7 +28,7 @@ var (
 
 		Save    commands.SaveCmd    `cmd:"" help:"save files."`
 		Restore commands.RestoreCmd `cmd:"" help:"restore files."`
-		KeyTest commands.KeyTestCmd `cmd:"" help:"test a key."`
+		KeyTest commands.KeyTestCmd `cmd:"" help:"test a key." hidden:""`
 	}
 )
 
