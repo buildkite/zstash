@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/google/go-querystring/query"
@@ -50,9 +51,12 @@ type CacheRetrieveReq struct {
 }
 
 type CacheRetrieveResp struct {
-	Multipart            bool     `json:"multipart"`
-	DownloadInstructions []string `json:"download_instructions"`
-	Message              string   `json:"message"`
+	Key                  string    `json:"key"`      // The key of the cache entry, we MUST to cater for fallbacks
+	Fallback             bool      `json:"fallback"` // Indicates if this is a fallback cache entry
+	ExpiresAt            time.Time `json:"expires_at"`
+	Multipart            bool      `json:"multipart"`
+	DownloadInstructions []string  `json:"download_instructions"`
+	Message              string    `json:"message"`
 }
 
 type CacheCreateResp struct {

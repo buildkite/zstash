@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
@@ -18,6 +19,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type RestoreCmd struct {
@@ -46,76 +48,172 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		attribute.String("fallback_keys", cmd.FallbackKeys),
 	)
 
-	paths, err := checkPath(cmd.Paths)
+	// Phase 1: Validate and prepare data
+	data, err := cmd.validateAndPrepare(ctx, span)
 	if err != nil {
-		return trace.NewError(span, "failed to check paths: %w", err)
-	}
-
-	cacheKey, err := key.Template(cmd.ID, cmd.Key)
-	if err != nil {
-		return trace.NewError(span, "failed to template key: %w", err)
-	}
-
-	fallbackCacheKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys)
-	if err != nil {
-		return trace.NewError(span, "failed to restore keys: %w", err)
+		return err
 	}
 
 	globals.Printer.Info("♻️", "Starting restore for id: %s", cmd.ID)
 	globals.Printer.Info("🔍", "Search registry: default") // TODO: configurable registries
 
-	log.Info().
-		Str("key", cacheKey).
-		Strs("fallback_keys", fallbackCacheKeys).
-		Msg("calling cache retrieve")
-
-	_, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{Key: cacheKey, Branch: cmd.Branch, FallbackKeys: strings.Join(fallbackCacheKeys, ",")})
+	// Phase 2: Check if cache exists
+	cacheResult, err := cmd.checkCacheExists(ctx, span, data, globals)
 	if err != nil {
-		return trace.NewError(span, "failed to retrieve cache: %w", err)
+		return err
 	}
 
-	if !exists {
-		globals.Printer.Warn("💨", "Cache miss for key: %s", cacheKey)
-
-		fmt.Println(exists)
+	if !cacheResult.exists {
+		globals.Printer.Warn("💨", "Cache miss for key: %s", data.cacheKey)
+		fmt.Println(cacheResult.exists)
 
 		return nil
 	}
 
-	globals.Printer.Success("🎯", "Cache hit for key: %s", cacheKey)
+	if cacheResult.fallback {
+		globals.Printer.Warn("⚠️", "Using fallback cache for key: %s", cacheResult.cacheKey)
+	} else {
+		globals.Printer.Info("✅", "Cache hit for key: %s", cacheResult.cacheKey)
+	}
 
+	globals.Printer.Info("⬇️", "Downloading cache for key: %s", cacheResult.cacheKey)
+
+	// Phase 3: Download cache
+	downloadResult, err := cmd.downloadCache(ctx, span, cacheResult.cacheKey, globals)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.RemoveAll(downloadResult.tmpDir)
+	}()
+
+	globals.Printer.Success("✅", "Download completed: %s at %.2fMB/s",
+		humanize.Bytes(Int64ToUint64(downloadResult.transferInfo.BytesTransferred)),
+		downloadResult.transferInfo.TransferSpeed)
+
+	// Phase 4: Extract files
+	extractionResult, err := cmd.extractFiles(ctx, span, downloadResult, data.paths, globals)
+	if err != nil {
+		return err
+	}
+
+	// Phase 5: Generate summary and output
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		Row("Key", cacheResult.cacheKey).
+		Row("Size", humanize.Bytes(Int64ToUint64(extractionResult.archiveInfo.Size))).
+		Row("Written Bytes", humanize.Bytes(Int64ToUint64(extractionResult.archiveInfo.WrittenBytes))).
+		Row("Written Entries", fmt.Sprintf("%d", extractionResult.archiveInfo.WrittenEntries)).
+		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(extractionResult.archiveInfo))).
+		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", downloadResult.transferInfo.TransferSpeed)).
+		Row("Duration", extractionResult.archiveInfo.Duration.String()).
+		Row("Paths", strings.Join(extractionResult.paths, ", "))
+
+	globals.Printer.Info("📊", "Cache restore summary:\n%s", t.Render())
+
+	if cacheResult.fallback {
+		fmt.Println("false") // write to stdout
+		return nil
+	}
+
+	// If we reach here, it means the restore was successful and we indicate that we HIT
+	fmt.Println("true") // write to stdout
+
+	return nil
+}
+
+type restoreData struct {
+	paths             []string
+	cacheKey          string
+	fallbackCacheKeys []string
+}
+
+type cacheExistenceResult struct {
+	exists    bool
+	cacheKey  string
+	fallback  bool
+	expiresAt time.Time
+}
+
+type downloadResult struct {
+	archiveFile  string
+	transferInfo *store.TransferInfo
+	tmpDir       string
+}
+
+type extractionResult struct {
+	archiveInfo *archive.ArchiveInfo
+	paths       []string
+}
+
+func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span) (*restoreData, error) {
+	paths, err := checkPath(cmd.Paths)
+	if err != nil {
+		return nil, trace.NewError(span, "failed to check paths: %w", err)
+	}
+
+	cacheKey, err := key.Template(cmd.ID, cmd.Key)
+	if err != nil {
+		return nil, trace.NewError(span, "failed to template key: %w", err)
+	}
+
+	fallbackCacheKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys)
+	if err != nil {
+		return nil, trace.NewError(span, "failed to restore keys: %w", err)
+	}
+
+	return &restoreData{
+		paths:             paths,
+		cacheKey:          cacheKey,
+		fallbackCacheKeys: fallbackCacheKeys,
+	}, nil
+}
+
+func (cmd *RestoreCmd) checkCacheExists(ctx context.Context, span oteltrace.Span, data *restoreData, globals *Globals) (*cacheExistenceResult, error) {
+
+	log.Info().
+		Str("key", data.cacheKey).
+		Strs("fallback_keys", data.fallbackCacheKeys).
+		Msg("calling cache retrieve")
+
+	retrieveResp, exists, err := globals.Client.CacheRetrieve(ctx, api.CacheRetrieveReq{
+		Key:          data.cacheKey,
+		Branch:       cmd.Branch,
+		FallbackKeys: strings.Join(data.fallbackCacheKeys, ","),
+	})
+	if err != nil {
+		return nil, trace.NewError(span, "failed to retrieve cache: %w", err)
+	}
+
+	if !exists {
+		return &cacheExistenceResult{exists: false, cacheKey: data.cacheKey}, nil
+	}
+
+	return &cacheExistenceResult{exists: exists, cacheKey: retrieveResp.Key, fallback: retrieveResp.Fallback, expiresAt: retrieveResp.ExpiresAt}, nil
+}
+
+func (cmd *RestoreCmd) downloadCache(ctx context.Context, span oteltrace.Span, cacheKey string, globals *Globals) (*downloadResult, error) {
 	log.Info().Str("bucket_url", cmd.BucketURL).
 		Str("prefix", cmd.Prefix).
 		Msg("restoring cache from s3")
 
-	globals.Printer.Info("⬇️", "Downloading cache for key: %s", cacheKey)
-
-	// upload the cache
 	blobs, err := store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
 	if err != nil {
-		return trace.NewError(span, "failed to create uploader: %w", err)
+		return nil, trace.NewError(span, "failed to create uploader: %w", err)
 	}
 
-	// create a temp directory
 	tmpDir, err := os.MkdirTemp("", "zstash-restore")
 	if err != nil {
-		return trace.NewError(span, "failed to create temp directory: %w", err)
+		return nil, trace.NewError(span, "failed to create temp directory: %w", err)
 	}
-	defer func() {
-		_ = os.RemoveAll(tmpDir)
-	}()
 
 	archiveFile := filepath.Join(tmpDir, cacheKey)
 
-	// download the cache
 	transferInfo, err := blobs.Download(ctx, cacheKey, archiveFile)
 	if err != nil {
-		return trace.NewError(span, "failed to download cache: %w", err)
+		os.RemoveAll(tmpDir)
+		return nil, trace.NewError(span, "failed to download cache: %w", err)
 	}
-
-	globals.Printer.Success("✅", "Download completed: %s at %.2fMB/s",
-		humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)),
-		transferInfo.TransferSpeed)
 
 	log.Debug().
 		Int64("size", transferInfo.BytesTransferred).
@@ -124,21 +222,25 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Dur("duration_ms", transferInfo.Duration).
 		Msg("cache downloaded")
 
-	// open the archive
-	archiveFileHandle, err := os.Open(archiveFile)
+	return &downloadResult{
+		archiveFile:  archiveFile,
+		transferInfo: transferInfo,
+		tmpDir:       tmpDir,
+	}, nil
+}
+
+func (cmd *RestoreCmd) extractFiles(ctx context.Context, span oteltrace.Span, download *downloadResult, paths []string, globals *Globals) (*extractionResult, error) {
+	archiveFileHandle, err := os.Open(download.archiveFile)
 	if err != nil {
-		return trace.NewError(span, "failed to open archive file: %w", err)
+		return nil, trace.NewError(span, "failed to open archive file: %w", err)
 	}
-	defer func() {
-		_ = archiveFileHandle.Close()
-	}()
+	defer archiveFileHandle.Close()
 
 	log.Info().Strs("paths", paths).Msg("extracting files")
 
-	// extract the cache
-	archiveInfo, err := archive.ExtractFiles(ctx, archiveFileHandle, transferInfo.BytesTransferred, paths)
+	archiveInfo, err := archive.ExtractFiles(ctx, archiveFileHandle, download.transferInfo.BytesTransferred, paths)
 	if err != nil {
-		return trace.NewError(span, "failed to extract archive: %w", err)
+		return nil, trace.NewError(span, "failed to extract archive: %w", err)
 	}
 
 	globals.Printer.Success("🗜️", "Extracted %d files from cache archive for paths: %v", archiveInfo.WrittenEntries, paths)
@@ -151,24 +253,10 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 		Float64("compression_ratio", compressionRatio(archiveInfo)).
 		Msg("archive extracted")
 
-	t := table.New().
-		Border(lipgloss.NormalBorder()).
-		Row("Key", cacheKey).
-		Row("Size", humanize.Bytes(Int64ToUint64(archiveInfo.Size))).
-		Row("Written Bytes", humanize.Bytes(Int64ToUint64(archiveInfo.WrittenBytes))).
-		Row("Written Entries", fmt.Sprintf("%d", archiveInfo.WrittenEntries)).
-		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(archiveInfo))).
-		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
-		Row("Duration", archiveInfo.Duration.String()).
-		Row("Paths", strings.Join(paths, ", "))
-
-	globals.Printer.Info("📊", "Cache restore summary:\n%s", t.Render())
-
-	// TODO: check if the cache entry is a fallback
-
-	fmt.Println("true") // write to stdout
-
-	return nil
+	return &extractionResult{
+		archiveInfo: archiveInfo,
+		paths:       paths,
+	}, nil
 }
 
 // calculate the compression ratio
