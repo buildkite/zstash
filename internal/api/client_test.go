@@ -430,3 +430,61 @@ func TestRoundTripperFunc(t *testing.T) {
 		t.Error("Expected round tripper function to be called")
 	}
 }
+
+func TestCachePeekExists_ContentTypeWithCharset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(CachePeekResp{Message: "Cache exists"})
+	}))
+	defer server.Close()
+
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+
+	req := CachePeekReq{
+		Key:    "test-key",
+		Branch: "main",
+	}
+
+	resp, exists, err := client.CachePeekExists(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if !exists {
+		t.Error("Expected cache to exist")
+	}
+
+	if resp.Message != "Cache exists" {
+		t.Errorf("Expected message 'Cache exists', got '%s'", resp.Message)
+	}
+}
+
+func TestIsJSONContentType(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		expected    bool
+	}{
+		{"basic JSON", "application/json", true},
+		{"JSON with charset", "application/json; charset=utf-8", true},
+		{"JSON with charset uppercase", "APPLICATION/JSON; CHARSET=UTF-8", true},
+		{"JSON with additional params", "application/json; charset=utf-8; boundary=something", true},
+		{"JSON with spaces", "  application/json  ", true},
+		{"JSON with spaces and charset", "  application/json; charset=utf-8  ", true},
+		{"text plain", "text/plain", false},
+		{"HTML", "text/html", false},
+		{"XML", "application/xml", false},
+		{"empty", "", false},
+		{"partial match", "json", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isJSONContentType(tt.contentType)
+			if result != tt.expected {
+				t.Errorf("isJSONContentType(%q) = %v, expected %v", tt.contentType, result, tt.expected)
+			}
+		})
+	}
+}

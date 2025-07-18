@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/buildkite/zstash/internal/trace"
@@ -25,6 +26,16 @@ const (
 var (
 	ErrCacheEntryNotFound = errors.New("cache entry not found")
 )
+
+// isJSONContentType checks if the content type indicates JSON response
+// Handles cases like "application/json" and "application/json; charset=utf-8"
+func isJSONContentType(contentType string) bool {
+	// Remove any leading/trailing whitespace and convert to lowercase
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+
+	// Check if it starts with "application/json"
+	return strings.HasPrefix(contentType, "application/json")
+}
 
 type Client struct {
 	client   *http.Client
@@ -111,45 +122,35 @@ func (c Client) Do(req *http.Request) (*http.Response, error) {
 	return c.client.Do(req)
 }
 
-// handleCacheGetResponse handles common cache GET response patterns and error handling
-func (c Client) handleCacheGetResponse(span otel.Span, res *http.Response, resp CachePeekResp) (CachePeekResp, bool, error) {
-	// Assert content type is application/json for successful responses
-	if res.StatusCode == http.StatusOK {
-		if res.Header.Get("Content-Type") != "application/json" {
-			return resp, false, trace.NewError(span, "unexpected content type: %s", res.Header.Get("Content-Type"))
-		}
-		return resp, true, nil
-	}
-
-	switch res.StatusCode {
-	case http.StatusNotFound:
-		switch resp.Message {
-		case CacheEntryNotFound:
-			return resp, false, nil
-		case CacheRegistryNotFound:
-			return resp, false, trace.NewError(span, "cache registry not found: %s", res.Status)
-		}
-		return resp, false, trace.NewError(span, "not found: %s", res.Status)
-	case http.StatusBadRequest:
-		return resp, false, trace.NewError(span, "bad request: %s", res.Status)
-	default:
-		return resp, false, trace.NewError(span, "request failed with status: %s", res.Status)
-	}
+// MessageGetter interface for types that have a Message field
+type MessageGetter interface {
+	GetMessage() string
 }
 
-// handleCacheRetrieveResponse handles cache retrieve response patterns
-func (c Client) handleCacheRetrieveResponse(span otel.Span, res *http.Response, resp CacheRetrieveResp) (CacheRetrieveResp, bool, error) {
+// GetMessage returns the message for CachePeekResp
+func (r CachePeekResp) GetMessage() string {
+	return r.Message
+}
+
+// GetMessage returns the message for CacheRetrieveResp
+func (r CacheRetrieveResp) GetMessage() string {
+	return r.Message
+}
+
+// handleCacheResponse handles common cache response patterns and error handling using generics
+func handleCacheResponse[T MessageGetter](span otel.Span, res *http.Response, resp T) (T, bool, error) {
 	// Assert content type is application/json for successful responses
 	if res.StatusCode == http.StatusOK {
-		if res.Header.Get("Content-Type") != "application/json" {
-			return resp, false, trace.NewError(span, "unexpected content type: %s", res.Header.Get("Content-Type"))
+		contentType := res.Header.Get("Content-Type")
+		if !isJSONContentType(contentType) {
+			return resp, false, trace.NewError(span, "unexpected content type: %s", contentType)
 		}
 		return resp, true, nil
 	}
 
 	switch res.StatusCode {
 	case http.StatusNotFound:
-		switch resp.Message {
+		switch resp.GetMessage() {
 		case CacheEntryNotFound:
 			return resp, false, nil
 		case CacheRegistryNotFound:
@@ -186,7 +187,7 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
 
-	return c.handleCacheGetResponse(span, res, resp)
+	return handleCacheResponse(span, res, resp)
 }
 
 func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCommitResp, error) {
@@ -214,8 +215,9 @@ func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCo
 	}
 
 	// Assert content type is application/json
-	if res.Header.Get("Content-Type") != "application/json" {
-		return resp, trace.NewError(span, "unexpected content type: %s", res.Header.Get("Content-Type"))
+	contentType := res.Header.Get("Content-Type")
+	if !isJSONContentType(contentType) {
+		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
 	}
 
 	return resp, nil
@@ -242,8 +244,9 @@ func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCr
 	}
 
 	// Assert content type is application/json
-	if res.Header.Get("Content-Type") != "application/json" {
-		return resp, trace.NewError(span, "unexpected content type: %s", res.Header.Get("Content-Type"))
+	contentType := res.Header.Get("Content-Type")
+	if !isJSONContentType(contentType) {
+		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
 	}
 
 	return resp, nil
@@ -280,7 +283,7 @@ func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (C
 		"code":   res.StatusCode,
 	}).Msg("Cache retrieved with the following parameters")
 
-	return c.handleCacheRetrieveResponse(span, res, resp)
+	return handleCacheResponse(span, res, resp)
 }
 
 func doRequest[T any, V any](ctx context.Context, client *http.Client, method string, url string, body *T) (res *http.Response, resp V, err error) {
