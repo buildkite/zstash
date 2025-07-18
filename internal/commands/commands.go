@@ -26,7 +26,7 @@ func checkPath(path string) ([]string, error) {
 	return paths, nil
 }
 
-func restoreKeys(id, restoreKeyList string) ([]string, error) {
+func restoreKeys(id, restoreKeyList string, recursive bool) ([]string, error) {
 	restoreKeyTemplates := strings.FieldsFunc(restoreKeyList, func(c rune) bool {
 		return c == '\n' || c == '\r'
 	})
@@ -42,7 +42,7 @@ func restoreKeys(id, restoreKeyList string) ([]string, error) {
 
 		log.Debug().Str("restore_key_template", restoreKeyTemplate).Msg("templating restore key")
 
-		restoreKey, err := key.Template(id, restoreKeyTemplate)
+		restoreKey, err := key.Template(id, restoreKeyTemplate, recursive)
 		if err != nil {
 			return nil, fmt.Errorf("failed to template restore key: %w", err)
 		}

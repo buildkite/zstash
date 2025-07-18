@@ -28,17 +28,18 @@ const (
 )
 
 type RestoreCmd struct {
-	ID           string `flag:"id" help:"ID of the cache entry to restore." required:"true"`
-	Key          string `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
-	FallbackKeys string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
-	Store        string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
-	Format       string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
-	Paths        string `flag:"paths" help:"Paths within the cache archive to restore to the restore path."`
-	Organization string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
-	Branch       string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`
-	Pipeline     string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
-	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
-	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
+	ID                 string `flag:"id" help:"ID of the cache entry to restore." required:"true"`
+	Key                string `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
+	FallbackKeys       string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
+	RecursiveChecksums bool   `flag:"recursive-checksums" help:"Recursively search for matches when generating cache keys."`
+	Store              string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
+	Format             string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
+	Paths              string `flag:"paths" help:"Paths within the cache archive to restore to the restore path."`
+	Organization       string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
+	Branch             string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`
+	Pipeline           string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
+	BucketURL          string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
+	Prefix             string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
@@ -157,12 +158,12 @@ func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Sp
 		return nil, trace.NewError(span, "failed to check paths: %w", err)
 	}
 
-	cacheKey, err := key.Template(cmd.ID, cmd.Key)
+	cacheKey, err := key.Template(cmd.ID, cmd.Key, cmd.RecursiveChecksums)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to template key: %w", err)
 	}
 
-	fallbackCacheKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys)
+	fallbackCacheKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys, cmd.RecursiveChecksums)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to restore keys: %w", err)
 	}

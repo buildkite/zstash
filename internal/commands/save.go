@@ -20,18 +20,19 @@ import (
 )
 
 type SaveCmd struct {
-	ID           string `flag:"id" help:"ID of the cache entry to save." required:"true"`
-	Key          string `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
-	FallbackKeys string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
-	Store        string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
-	Format       string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
-	Paths        string `flag:"paths" help:"Paths to remove."`
-	Organization string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG" required:"true"`
-	Branch       string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH" required:"true"`
-	Pipeline     string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG" required:"true"`
-	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
-	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
-	Skip         bool   `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
+	ID                 string `flag:"id" help:"ID of the cache entry to save." required:"true"`
+	Key                string `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
+	FallbackKeys       string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
+	RecursiveChecksums bool   `flag:"recursive-checksums" help:"Recursively search for matches when generating cache keys."`
+	Store              string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
+	Format             string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
+	Paths              string `flag:"paths" help:"Paths to remove."`
+	Organization       string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG" required:"true"`
+	Branch             string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH" required:"true"`
+	Pipeline           string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG" required:"true"`
+	BucketURL          string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
+	Prefix             string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
+	Skip               bool   `help:"Skip saving the cache entry." env:"BUILDKITE_CACHE_SKIP"`
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
@@ -55,7 +56,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return nil
 	}
 
-	tkey, err := key.Template(cmd.ID, cmd.Key)
+	tkey, err := key.Template(cmd.ID, cmd.Key, cmd.RecursiveChecksums)
 	if err != nil {
 		return trace.NewError(span, "failed to template key: %w", err)
 	}
@@ -85,7 +86,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return trace.NewError(span, "failed to check paths: %w", err)
 	}
 
-	fallbackKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys)
+	fallbackKeys, err := restoreKeys(cmd.ID, cmd.FallbackKeys, cmd.RecursiveChecksums)
 	if err != nil {
 		return trace.NewError(span, "failed to restore keys: %w", err)
 	}

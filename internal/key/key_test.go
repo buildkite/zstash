@@ -11,127 +11,174 @@ import (
 )
 
 func TestTemplate(t *testing.T) {
-	tests := []struct {
-		name        string
-		id          string
-		key         string
-		expected    string
-		expectedErr bool
-		setup       func() error
-		env         map[string]string
-		cleanup     func()
-	}{
-		{
-			name:     "simple string",
-			key:      "mykey",
-			expected: "mykey",
-		},
-		{
-			name:     "string with whitespace",
-			key:      "  mykey  ",
-			expected: "mykey",
-		},
-		{
-			name:     "invalid template",
-			key:      "{{.InvalidField}}",
-			expected: "",
-		},
-		{
-			name:     "checksum function with non-existent file",
-			key:      `{{checksum "non-existent-file"}}`,
-			expected: "",
-		},
-		{
-			name: "checksum function with file",
-			id:   "go",
-			key:  `{{ id }}-{{checksum "go.mod"}}`,
-			setup: func() error {
-				return os.WriteFile("go.mod", []byte("test content"), 0600)
+	t.Run("basic templates", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			key      string
+			expected string
+		}{
+			{
+				name:     "simple string",
+				key:      "mykey",
+				expected: "mykey",
 			},
-			cleanup: func() {
-				_ = os.Remove("testfile")
+			{
+				name:     "string with whitespace",
+				key:      "  mykey  ",
+				expected: "mykey",
 			},
-			expected: "go-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", // This is the expected SHA256 hash
-		},
-		{
-			name: "checksum function with file and os/arch",
-			id:   "go",
-			key:  `{{ id }}-{{ agent.os }}-{{ agent.arch }}-{{checksum "go.mod"}}`,
-			setup: func() error {
-				return os.WriteFile("go.mod", []byte("test content"), 0600)
+			{
+				name:     "invalid template",
+				key:      "{{.InvalidField}}",
+				expected: "",
 			},
-			cleanup: func() {
-				_ = os.Remove("testfile")
-			},
-			expected: fmt.Sprintf("go-%s-%s-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", runtime.GOOS, runtime.GOARCH), // This is the expected SHA256 hash
-		},
-		{
-			name: "checksum function with file and directory",
-			key:  `go-{{checksum "go.mod"}}`,
-			setup: func() error {
-				if err := os.Mkdir("integration-tests", 0755); err != nil {
-					return err
-				}
-				if err := os.WriteFile(filepath.Join("integration-tests", "go.mod"), []byte("test content"), 0600); err != nil {
-					return err
-				}
-				return os.WriteFile("go.mod", []byte("test content"), 0600)
-			},
-			cleanup: func() {
-				_ = os.Remove("testfile")
-				_ = os.RemoveAll("testdir")
-			},
-			expected: "go-41a16a34ed93bb76eb778de4bb735de7d43ff39ffa1c60027e1616cade39712b", // This is the expected SHA256 hash
-		},
-		{
-			name: "checksum function with directory",
-			key:  `{{checksum "testdir"}}`,
-			setup: func() error {
-				if err := os.Mkdir("testdir", 0755); err != nil {
-					return err
-				}
-				return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0600)
-			},
-			cleanup: func() {
-				_ = os.RemoveAll("testdir")
-			},
-			expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", // This would be the actual expected hash
-		},
-	}
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert := require.New(t)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				got, err := Template("", tt.key, false)
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, got)
+			})
+		}
+	})
 
-			// Set up environment variables if provided
-			if tt.env != nil {
-				for key, value := range tt.env {
-					t.Setenv(key, value)
-				}
-			}
+	t.Run("checksum templates", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			id        string
+			key       string
+			recursive bool
+			setup     func() error
+			cleanup   func()
+			expected  string
+		}{
+			{
+				name:     "non-existent file",
+				key:      `{{checksum "non-existent-file"}}`,
+				expected: "",
+			},
+			{
+				name: "single file",
+				id:   "go",
+				key:  `{{ id }}-{{checksum "go.mod"}}`,
+				setup: func() error {
+					return os.WriteFile("go.mod", []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("go.mod")
+				},
+				expected: "go-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
+			},
+			{
+				name: "file with os/arch",
+				id:   "go",
+				key:  `{{ id }}-{{ agent.os }}-{{ agent.arch }}-{{checksum "go.mod"}}`,
+				setup: func() error {
+					return os.WriteFile("go.mod", []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("go.mod")
+				},
+				expected: fmt.Sprintf("go-%s-%s-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", runtime.GOOS, runtime.GOARCH),
+			},
+			{
+				name:      "file non-recursive (only root)",
+				key:       `go-{{checksum "go.mod"}}`,
+				recursive: false,
+				setup: func() error {
+					if err := os.Mkdir("subdir", 0755); err != nil {
+						return err
+					}
+					if err := os.WriteFile(filepath.Join("subdir", "go.mod"), []byte("nested content"), 0600); err != nil {
+						return err
+					}
+					return os.WriteFile("go.mod", []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("go.mod")
+					_ = os.RemoveAll("subdir")
+				},
+				expected: "go-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
+			},
+			{
+				name:      "file recursive (finds all)",
+				key:       `go-{{checksum "go.mod"}}`,
+				recursive: true,
+				setup: func() error {
+					if err := os.Mkdir("subdir", 0755); err != nil {
+						return err
+					}
+					if err := os.WriteFile(filepath.Join("subdir", "go.mod"), []byte("nested content"), 0600); err != nil {
+						return err
+					}
+					return os.WriteFile("go.mod", []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("go.mod")
+					_ = os.RemoveAll("subdir")
+				},
+				expected: "go-f2684b75ab846895bcc1d50f4511edeb8fcd86167a8e6e64aeee46afc1576d9c",
+			},
+			{
+				name:      "directory recursive",
+				key:       `{{checksum "testfile"}}`,
+				recursive: true,
+				setup: func() error {
+					if err := os.Mkdir("testdir", 0755); err != nil {
+						return err
+					}
+					return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.RemoveAll("testdir")
+				},
+				expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
+			},
+			{
+				name:      "directory non-recursive (empty)",
+				key:       `{{checksum "testdir"}}`,
+				recursive: false,
+				setup: func() error {
+					if err := os.Mkdir("testdir", 0755); err != nil {
+						return err
+					}
+					return os.WriteFile(filepath.Join("testdir", "testfile"), []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.RemoveAll("testdir")
+				},
+				expected: "",
+			},
+		}
 
-			// change working directory to a temp dir
-			tmpDir, err := os.MkdirTemp("", "zstash-test")
-			assert.NoError(err)
-			defer func() {
-				_ = os.RemoveAll(tmpDir)
-			}()
-			err = os.Chdir(tmpDir)
-			assert.NoError(err)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				assert := require.New(t)
 
-			// Set up the test environment
-			if tt.setup != nil {
-				err := tt.setup()
+				// Create temp directory
+				tmpDir, err := os.MkdirTemp("", "zstash-test")
 				assert.NoError(err)
-			}
+				defer func() {
+					_ = os.RemoveAll(tmpDir)
+				}()
+				err = os.Chdir(tmpDir)
+				assert.NoError(err)
 
-			if tt.cleanup != nil {
-				defer tt.cleanup()
-			}
+				// Setup test environment
+				if tt.setup != nil {
+					err := tt.setup()
+					assert.NoError(err)
+				}
 
-			got, err := Template(tt.id, tt.key)
-			assert.NoError(err)
-			assert.Equal(tt.expected, got)
-		})
-	}
+				if tt.cleanup != nil {
+					defer tt.cleanup()
+				}
+
+				got, err := Template(tt.id, tt.key, tt.recursive)
+				assert.NoError(err)
+				assert.Equal(tt.expected, got)
+			})
+		}
+	})
 }
