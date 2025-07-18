@@ -166,7 +166,7 @@ func matchFilesAndDirs(filename string, recursive bool) ([]string, []string, err
 	matchedFiles := []string{}
 
 	// Check if the filename is a specific relative path (contains directory separators)
-	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+	if filepath.Dir(filename) != "." {
 		// Handle as a specific relative path
 		cleanPath := filepath.Clean(filename)
 		info, err := os.Stat(cleanPath)
