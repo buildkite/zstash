@@ -150,6 +150,21 @@ func TestTemplate(t *testing.T) {
 				},
 				expected: "",
 			},
+			{
+				name:      "file path non-recursive",
+				key:       `{{checksum "testdir/Dockerfile.dev"}}`,
+				recursive: false,
+				setup: func() error {
+					if err := os.Mkdir("testdir", 0755); err != nil {
+						return err
+					}
+					return os.WriteFile(filepath.Join("testdir", "Dockerfile.dev"), []byte("test content"), 0600)
+				},
+				cleanup: func() {
+					_ = os.RemoveAll("testdir")
+				},
+				expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
+			},
 		}
 
 		for _, tt := range tests {

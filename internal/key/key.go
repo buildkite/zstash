@@ -165,6 +165,25 @@ func matchFilesAndDirs(filename string, recursive bool) ([]string, []string, err
 	matchedDirs := []string{}
 	matchedFiles := []string{}
 
+	// Check if the filename is a specific relative path (contains directory separators)
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		// Handle as a specific relative path
+		cleanPath := filepath.Clean(filename)
+		info, err := os.Stat(cleanPath)
+		if err != nil {
+			log.Debug().Err(err).Str("path", cleanPath).Msg("specific path not found")
+			return matchedFiles, matchedDirs, nil
+		}
+
+		if info.IsDir() {
+			matchedDirs = append(matchedDirs, cleanPath)
+		} else {
+			matchedFiles = append(matchedFiles, cleanPath)
+		}
+		return matchedFiles, matchedDirs, nil
+	}
+
+	// Original logic for matching by basename
 	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Error().Err(err).Str("path", path).Msg("error walking path")
