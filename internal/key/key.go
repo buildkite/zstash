@@ -21,6 +21,7 @@ var ignoreFiles = []string{
 	".bzr",
 	".vscode",
 	".idea",
+	".keep",
 }
 
 func Template(id, key string, recursive bool) (string, error) {
