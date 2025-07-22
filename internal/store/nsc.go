@@ -21,7 +21,7 @@ import (
 type NscStore struct {
 }
 
-func New() *NscStore {
+func NewNscStore() *NscStore {
 	return &NscStore{}
 }
 
