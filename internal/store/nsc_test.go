@@ -90,7 +90,7 @@ func TestValidateFilePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateFilePath(tt.filePath)
-			
+
 			if tt.expectError {
 				require.Error(t, err)
 				if tt.errorMsg != "" {
@@ -177,7 +177,7 @@ func TestValidateKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateKey(tt.key)
-			
+
 			if tt.expectError {
 				require.Error(t, err)
 				if tt.errorMsg != "" {
@@ -192,9 +192,9 @@ func TestValidateKey(t *testing.T) {
 
 func TestRunCommandValidation(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Test empty args
-	result, err := runCommand(ctx, "", /* no args */)
+	result, err := runCommand(ctx, "" /* no args */)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no command provided")
 	assert.Nil(t, result)
@@ -205,26 +205,26 @@ func TestRunCommandValidation(t *testing.T) {
 func TestNscStore_Upload_Validation(t *testing.T) {
 	store := New()
 	ctx := context.Background()
-	
+
 	// Create a temporary test file
 	tmpDir, err := os.MkdirTemp("", "nsc-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
-	
+
 	testFile := filepath.Join(tmpDir, "test.txt")
 	err = os.WriteFile(testFile, []byte("test content"), 0600)
 	require.NoError(t, err)
-	
+
 	// Test invalid file path
 	_, err = store.Upload(ctx, "invalid;path", "valid-key")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid file path")
-	
+
 	// Test invalid key
 	_, err = store.Upload(ctx, testFile, "invalid key with spaces")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid key")
-	
+
 	// Test valid inputs (will fail with nsc command error, but validation passes)
 	_, err = store.Upload(ctx, testFile, "valid-key")
 	// This will error because nsc command likely doesn't exist or isn't configured
@@ -239,23 +239,23 @@ func TestNscStore_Upload_Validation(t *testing.T) {
 func TestNscStore_Download_Validation(t *testing.T) {
 	store := New()
 	ctx := context.Background()
-	
+
 	tmpDir, err := os.MkdirTemp("", "nsc-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
-	
+
 	destFile := filepath.Join(tmpDir, "download.txt")
-	
+
 	// Test invalid key
 	_, err = store.Download(ctx, "invalid key with spaces", destFile)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid key")
-	
+
 	// Test invalid file path
 	_, err = store.Download(ctx, "valid-key", "invalid;path")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid file path")
-	
+
 	// Test valid inputs (will fail with nsc command error, but validation passes)
 	_, err = store.Download(ctx, "valid-key", destFile)
 	// This will error because nsc command likely doesn't exist or isn't configured
@@ -292,7 +292,7 @@ func TestNscStore_Integration(t *testing.T) {
 	key := "integration-test/test-file.txt"
 	transferInfo, err := store.Upload(ctx, testFile, key)
 	require.NoError(t, err, "Upload should succeed with valid NSC setup")
-	
+
 	assert.Greater(t, transferInfo.BytesTransferred, int64(0))
 	assert.Greater(t, transferInfo.TransferSpeed, 0.0)
 	assert.Greater(t, transferInfo.Duration, 0)
@@ -301,16 +301,16 @@ func TestNscStore_Integration(t *testing.T) {
 	downloadFile := filepath.Join(tmpDir, "test-download.txt")
 	transferInfo, err = store.Download(ctx, key, downloadFile)
 	require.NoError(t, err, "Download should succeed")
-	
+
 	assert.Greater(t, transferInfo.BytesTransferred, int64(0))
-	
+
 	// Verify downloaded content
 	downloadedContent, err := os.ReadFile(downloadFile)
 	require.NoError(t, err)
 	assert.Equal(t, testContent, string(downloadedContent))
 
-	t.Logf("Upload: %d bytes at %.2f MB/s in %v", 
-		transferInfo.BytesTransferred, 
-		transferInfo.TransferSpeed, 
+	t.Logf("Upload: %d bytes at %.2f MB/s in %v",
+		transferInfo.BytesTransferred,
+		transferInfo.TransferSpeed,
 		transferInfo.Duration)
 }

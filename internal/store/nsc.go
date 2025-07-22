@@ -33,7 +33,7 @@ func validateFilePath(filePath string) error {
 
 	// Clean the path to normalize it
 	cleanPath := filepath.Clean(filePath)
-	
+
 	// Check for potentially dangerous characters that could be used for command injection
 	dangerousChars := []string{";", "&", "|", "`", "$", "(", ")", "{", "}", "[", "]", "<", ">", "\"", "'", "\\"}
 	for _, char := range dangerousChars {
@@ -194,6 +194,8 @@ func runCommand(ctx context.Context, workingDir string, args ...string) (*Comman
 
 	cr := &CommandResult{}
 
+	// #nosec G204 - args are validated by callers (validateFilePath, validateKey)
+	// and this function is internal to the store package with controlled usage
 	cmd := exec.Command(args[0], args[1:]...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
