@@ -32,7 +32,7 @@ type RestoreCmd struct {
 	Key                string `flag:"key" help:"Key of the cache entry to restore, this can be a template string." required:"true"`
 	FallbackKeys       string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
 	RecursiveChecksums bool   `flag:"recursive-checksums" help:"Recursively search for matches when generating cache keys."`
-	Store              string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
+	Store              string `flag:"store" help:"store used to upload / download" enum:"s3,nsc" default:"s3"`
 	Format             string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
 	Paths              string `flag:"paths" help:"Paths within the cache archive to restore to the restore path."`
 	Organization       string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
@@ -203,9 +203,21 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, span oteltrace.Span, c
 		Str("prefix", cmd.Prefix).
 		Msg("restoring cache from s3")
 
-	blobs, err := store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
-	if err != nil {
-		return nil, trace.NewError(span, "failed to create uploader: %w", err)
+	var (
+		blobs store.Blob
+		err   error
+	)
+
+	switch cmd.Store {
+	case "s3":
+		blobs, err = store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
+		if err != nil {
+			return nil, trace.NewError(span, "failed to create s3 blob store: %w", err)
+		}
+	case "nsc":
+		blobs = store.NewNscStore()
+	default:
+		return nil, trace.NewError(span, "unsupported store type: %s", cmd.Store)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "zstash-restore")

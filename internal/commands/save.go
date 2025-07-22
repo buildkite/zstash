@@ -24,7 +24,7 @@ type SaveCmd struct {
 	Key                string `flag:"key" help:"Key of the cache entry to save, this can be a template string." required:"true"`
 	FallbackKeys       string `flag:"fallback-keys" help:"Fallback keys to use, this is a comma delimited list of key template strings."`
 	RecursiveChecksums bool   `flag:"recursive-checksums" help:"Recursively search for matches when generating cache keys."`
-	Store              string `flag:"store" help:"store used to upload / download" enum:"s3" default:"s3"`
+	Store              string `flag:"store" help:"store used to upload / download" enum:"s3,nsc" default:"s3"`
 	Format             string `flag:"format" help:"the format of the archive" enum:"zip" default:"zip"`
 	Paths              string `flag:"paths" help:"Paths to remove."`
 	Organization       string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG" required:"true"`
@@ -136,10 +136,20 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", createResp.UploadID)
 
-	// upload the cache
-	blobs, err := store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
-	if err != nil {
-		return trace.NewError(span, "failed to create uploader: %w", err)
+	var (
+		blobs store.Blob
+	)
+
+	switch cmd.Store {
+	case "s3":
+		blobs, err = store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
+		if err != nil {
+			return trace.NewError(span, "failed to create s3 blog store: %w", err)
+		}
+	case "nsc":
+		blobs = store.NewNscStore()
+	default:
+		return trace.NewError(span, "unsupported store type: %s", cmd.Store)
 	}
 
 	globals.Printer.Info("⬆️", "Uploading cache archive to S3...")
