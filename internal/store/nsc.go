@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/buildkite/zstash/internal/trace"
@@ -22,9 +25,71 @@ func New() *NscStore {
 	return &NscStore{}
 }
 
+// validateFilePath validates that a file path is safe for use in commands
+func validateFilePath(filePath string) error {
+	if filePath == "" {
+		return fmt.Errorf("file path cannot be empty")
+	}
+
+	// Clean the path to normalize it
+	cleanPath := filepath.Clean(filePath)
+	
+	// Check for potentially dangerous characters that could be used for command injection
+	dangerousChars := []string{";", "&", "|", "`", "$", "(", ")", "{", "}", "[", "]", "<", ">", "\"", "'", "\\"}
+	for _, char := range dangerousChars {
+		if strings.Contains(cleanPath, char) {
+			return fmt.Errorf("file path contains potentially dangerous character: %s", char)
+		}
+	}
+
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("file path contains path traversal sequence")
+	}
+
+	return nil
+}
+
+// validateKey validates that an artifact key is safe for use in commands
+func validateKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+
+	// Check length - reasonable limit for artifact keys
+	if len(key) > 256 {
+		return fmt.Errorf("key too long (max 256 characters)")
+	}
+
+	// NSC artifact keys should be alphanumeric with some safe special characters
+	// Allow: alphanumeric, hyphens, underscores, dots, forward slashes
+	validKeyPattern := regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
+	if !validKeyPattern.MatchString(key) {
+		return fmt.Errorf("key contains invalid characters (only alphanumeric, ., _, /, - are allowed)")
+	}
+
+	// Check for potentially dangerous patterns
+	dangerousPatterns := []string{"../", "./", "//", "&&", "||", ";", "`", "$"}
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(key, pattern) {
+			return fmt.Errorf("key contains potentially dangerous pattern: %s", pattern)
+		}
+	}
+
+	return nil
+}
+
 func (n *NscStore) Upload(ctx context.Context, filePath string, key string) (*TransferInfo, error) {
 	_, span := trace.Start(ctx, "NscStore.Upload")
 	defer span.End()
+
+	// Validate input parameters to prevent command injection
+	if err := validateFilePath(filePath); err != nil {
+		return nil, fmt.Errorf("invalid file path: %w", err)
+	}
+	if err := validateKey(key); err != nil {
+		return nil, fmt.Errorf("invalid key: %w", err)
+	}
 
 	start := time.Now()
 
@@ -65,6 +130,14 @@ func (n *NscStore) Upload(ctx context.Context, filePath string, key string) (*Tr
 func (n *NscStore) Download(ctx context.Context, key string, filePath string) (*TransferInfo, error) {
 	_, span := trace.Start(ctx, "NscStore.Download")
 	defer span.End()
+
+	// Validate input parameters to prevent command injection
+	if err := validateKey(key); err != nil {
+		return nil, fmt.Errorf("invalid key: %w", err)
+	}
+	if err := validateFilePath(filePath); err != nil {
+		return nil, fmt.Errorf("invalid file path: %w", err)
+	}
 
 	start := time.Now()
 
@@ -111,6 +184,11 @@ type CommandResult struct {
 func runCommand(ctx context.Context, workingDir string, args ...string) (*CommandResult, error) {
 	_, span := trace.Start(ctx, "runCommand")
 	defer span.End()
+
+	// Validate that args is not empty to prevent panic
+	if len(args) == 0 {
+		return nil, fmt.Errorf("no command provided")
+	}
 
 	span.SetAttributes(attribute.StringSlice("command", args))
 
