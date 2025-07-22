@@ -2,9 +2,11 @@ package commands
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/buildkite/zstash/internal/api"
+	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/key"
 	"github.com/rs/zerolog/log"
@@ -17,6 +19,7 @@ type Globals struct {
 	Printer *console.Printer
 }
 
+// checkPath validates the provided path and returns a list of paths.
 func checkPath(path string) ([]string, error) {
 	paths := strings.Fields(path)
 	if len(paths) == 0 {
@@ -26,6 +29,7 @@ func checkPath(path string) ([]string, error) {
 	return paths, nil
 }
 
+// restoreKeys generates a list of restore keys from the provided ID and restore key list.
 func restoreKeys(id, restoreKeyList string, recursive bool) ([]string, error) {
 	restoreKeyTemplates := strings.FieldsFunc(restoreKeyList, func(c rune) bool {
 		return c == '\n' || c == '\r'
@@ -53,4 +57,23 @@ func restoreKeys(id, restoreKeyList string, recursive bool) ([]string, error) {
 	}
 
 	return restoreKeys, nil
+}
+
+// calculate the compression ratio
+func compressionRatio(archiveInfo *archive.ArchiveInfo) float64 {
+	if archiveInfo.Size == 0 {
+		return 0.0
+	}
+	return float64(archiveInfo.WrittenBytes) / float64(archiveInfo.Size)
+}
+
+// Int64ToUint64 converts an int64 to uint64, handling negative values and max int64
+func Int64ToUint64(x int64) uint64 {
+	if x < 0 {
+		return 0
+	}
+	if x == math.MaxInt64 {
+		return math.MaxUint64
+	}
+	return uint64(x)
 }
