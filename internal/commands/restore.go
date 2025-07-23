@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,22 +277,4 @@ func (cmd *RestoreCmd) extractFiles(ctx context.Context, span oteltrace.Span, do
 		archiveInfo: archiveInfo,
 		paths:       paths,
 	}, nil
-}
-
-// calculate the compression ratio
-func compressionRatio(archiveInfo *archive.ArchiveInfo) float64 {
-	if archiveInfo.Size == 0 {
-		return 0.0
-	}
-	return float64(archiveInfo.WrittenBytes) / float64(archiveInfo.Size)
-}
-
-func Int64ToUint64(x int64) uint64 {
-	if x < 0 {
-		return 0
-	}
-	if x == math.MaxInt64 {
-		return math.MaxUint64
-	}
-	return uint64(x)
 }
