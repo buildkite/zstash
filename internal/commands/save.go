@@ -103,6 +103,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return err
 	}
 
+	// Phase 7: Print summary
 	t := table.New().
 		Border(lipgloss.NormalBorder()).
 		Row("Key", data.cacheKey).
