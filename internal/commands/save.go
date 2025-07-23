@@ -67,9 +67,12 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	globals.Printer.Info("🔍", "Checking if cache already exists for key: %s", data.cacheKey)
 
 	// Phase 2: Check if cache already exists
-	if exists, err := cmd.checkCacheExists(ctx, span, data.cacheKey, globals); err != nil {
+	exists, err := cmd.checkCacheExists(ctx, span, data.cacheKey, globals)
+	if err != nil {
 		return err
-	} else if exists {
+	}
+
+	if exists {
 		globals.Printer.Success("✅", "Cache already exists for key: %s", data.cacheKey)
 		fmt.Println("true") // write to stdout
 		return nil
@@ -100,8 +103,19 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 		return err
 	}
 
-	// Phase 7: Generate summary and output
-	cmd.generateSummary(data, archiveResult, uploadResult, globals)
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		Row("Key", data.cacheKey).
+		Row("Archive Size", humanize.Bytes(Int64ToUint64(archiveResult.fileInfo.Size))).
+		Row("Written Bytes", humanize.Bytes(Int64ToUint64(archiveResult.fileInfo.WrittenBytes))).
+		Row("Written Entries", fmt.Sprintf("%d", archiveResult.fileInfo.WrittenEntries)).
+		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(archiveResult.fileInfo))).
+		Row("Build Duration", archiveResult.fileInfo.Duration.String()).
+		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", uploadResult.transferInfo.TransferSpeed)).
+		Row("Upload Duration", uploadResult.transferInfo.Duration.String()).
+		Row("Paths", strings.Join(data.paths, ", "))
+
+	globals.Printer.Info("📊", "Cache save summary:\n%s", t.Render())
 
 	fmt.Println("true") // write to stdout
 
@@ -227,7 +241,7 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, span oteltrace.Span, cach
 	case "s3":
 		blobs, err = store.NewGocloudBlob(ctx, cmd.BucketURL, cmd.Prefix)
 		if err != nil {
-			return nil, trace.NewError(span, "failed to create s3 blog store: %w", err)
+			return nil, trace.NewError(span, "failed to create s3 blob store: %w", err)
 		}
 	case "nsc":
 		blobs = store.NewNscStore()
@@ -272,22 +286,6 @@ func (cmd *SaveCmd) commitCache(ctx context.Context, span oteltrace.Span, upload
 	globals.Printer.Success("🎉", "Cache committed successfully")
 
 	return nil
-}
-
-func (cmd *SaveCmd) generateSummary(data *saveData, archiveResult *archiveResult, uploadResult *uploadResult, globals *Globals) {
-	t := table.New().
-		Border(lipgloss.NormalBorder()).
-		Row("Key", data.cacheKey).
-		Row("Archive Size", humanize.Bytes(Int64ToUint64(archiveResult.fileInfo.Size))).
-		Row("Written Bytes", humanize.Bytes(Int64ToUint64(archiveResult.fileInfo.WrittenBytes))).
-		Row("Written Entries", fmt.Sprintf("%d", archiveResult.fileInfo.WrittenEntries)).
-		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(archiveResult.fileInfo))).
-		Row("Build Duration", archiveResult.fileInfo.Duration.String()).
-		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", uploadResult.transferInfo.TransferSpeed)).
-		Row("Upload Duration", uploadResult.transferInfo.Duration.String()).
-		Row("Paths", strings.Join(data.paths, ", "))
-
-	globals.Printer.Info("📊", "Cache save summary:\n%s", t.Render())
 }
 
 func checkPathsExist(paths []string) ([]string, error) {
