@@ -12,16 +12,41 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type Cache struct {
+	// ID of the cache entry to save." required:"true
+	ID string
+	// Key of the cache entry to save, this can be a template string." required:"true
+	Key string
+	// Fallback keys to use, this is a comma delimited list of key template strings.
+	FallbackKeys []string
+	// Recursively search for matches when generating cache keys.
+	RecursiveChecksums bool
+	// store used to upload / download" enum:"s3,nsc" default:"s3
+	Store string
+	// Paths to remove.
+	Paths []string
+}
+
+type CommonFlags struct {
+	Organization string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
+	Branch       string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`
+	Pipeline     string `flag:"pipeline" help:"The pipeline to use." env:"BUILDKITE_PIPELINE_SLUG"`
+	BucketURL    string `flag:"bucket-url" help:"The bucket URL to use." env:"BUILDKITE_CACHE_BUCKET_URL"`
+	Prefix       string `flag:"prefix" help:"The prefix to use." env:"BUILDKITE_CACHE_PREFIX"`
+	Format       string `flag:"format" help:"The format of the archive to use." enum:"zip" default:"zip" env:"BUILDKITE_CACHE_FORMAT"`
+}
+
 type Globals struct {
 	Debug   bool
 	Version string
 	Client  api.Client
 	Printer *console.Printer
+	Caches  []Cache
+	Common  CommonFlags
 }
 
 // checkPath validates the provided path and returns a list of paths.
-func checkPath(path string) ([]string, error) {
-	paths := strings.Fields(path)
+func checkPath(paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no paths provided")
 	}
@@ -30,11 +55,7 @@ func checkPath(path string) ([]string, error) {
 }
 
 // restoreKeys generates a list of restore keys from the provided ID and restore key list.
-func restoreKeys(id, restoreKeyList string, recursive bool) ([]string, error) {
-	restoreKeyTemplates := strings.FieldsFunc(restoreKeyList, func(c rune) bool {
-		return c == '\n' || c == '\r'
-	})
-
+func restoreKeys(id string, restoreKeyTemplates []string, recursive bool) ([]string, error) {
 	restoreKeys := make([]string, len(restoreKeyTemplates))
 
 	log.Debug().Str("id", id).Strs("restore_keys", restoreKeyTemplates).Msg("templating restore keys")

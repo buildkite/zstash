@@ -26,6 +26,10 @@ var (
 		Token         string `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
 		TraceExporter string `flag:"trace-exporter" help:"The trace exporter to use. Defaults to 'noop'." default:"noop" enum:"noop,grpc" env:"BUILDKITE_ZSTASH_TRACE_EXPORTER"`
 
+		commands.CommonFlags
+
+		Caches []commands.Cache // embedded configuration for caches
+
 		Save    commands.SaveCmd    `cmd:"" help:"save files."`
 		Restore commands.RestoreCmd `cmd:"" help:"restore files."`
 		KeyTest commands.KeyTestCmd `cmd:"" help:"test a key." hidden:""`
@@ -41,7 +45,8 @@ func main() {
 		kong.Vars{
 			"version": version,
 		},
-		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml"),
+		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
+		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml", ".buildkite/cache.json"),
 		kong.BindTo(ctx, (*context.Context)(nil)))
 
 	// check the token is set
@@ -71,7 +76,7 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Caches: cli.Caches})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 

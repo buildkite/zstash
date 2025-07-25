@@ -63,6 +63,7 @@ type CacheRetrieveReq struct {
 }
 
 type CacheRetrieveResp struct {
+	Store                string    `json:"store"`    // The store used for the cache entry
 	Key                  string    `json:"key"`      // The key of the cache entry, we MUST use this in rest of the restore process to cater for fallbacks
 	Fallback             bool      `json:"fallback"` // Indicates if this is a fallback cache entry
 	ExpiresAt            time.Time `json:"expires_at"`
@@ -84,7 +85,11 @@ type CachePeekReq struct {
 }
 
 type CachePeekResp struct {
-	Message string `json:"message"`
+	Store       string    `json:"store"` // The store used for the cache entry
+	Digest      string    `json:"digest"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Compression string    `json:"compression"`
+	Message     string    `json:"message"`
 }
 
 type CacheCommitReq struct {
