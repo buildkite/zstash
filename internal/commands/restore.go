@@ -28,6 +28,7 @@ const (
 )
 
 type RestoreCmd struct {
+	IDs []string `flag:"skip-ids" help:"Comma-separated list of cache IDs to save."`
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
@@ -204,7 +205,8 @@ func (cmd *RestoreCmd) checkCacheExists(ctx context.Context, span oteltrace.Span
 func (cmd *RestoreCmd) downloadCache(ctx context.Context, span oteltrace.Span, cacheResult *cacheExistenceResult, common CommonFlags) (*downloadResult, error) {
 	log.Info().Str("bucket_url", common.BucketURL).
 		Str("prefix", common.Prefix).
-		Msg("restoring cache from s3")
+		Str("store", cacheResult.store).
+		Msg("restoring cache")
 
 	var (
 		blobs store.Blob
@@ -212,12 +214,12 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, span oteltrace.Span, c
 	)
 
 	switch cacheResult.store {
-	case "s3":
+	case store.LocalS3Store:
 		blobs, err = store.NewGocloudBlob(ctx, common.BucketURL, common.Prefix)
 		if err != nil {
 			return nil, trace.NewError(span, "failed to create s3 blob store: %w", err)
 		}
-	case "nsc":
+	case store.LocalNscStore:
 		blobs = store.NewNscStore()
 	default:
 		return nil, trace.NewError(span, "unsupported store type: %s", cacheResult.store)

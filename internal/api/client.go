@@ -14,6 +14,7 @@ import (
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/google/go-querystring/query"
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/rs/zerolog/log"
 	otel "go.opentelemetry.io/otel/trace"
 )
@@ -44,6 +45,7 @@ type Client struct {
 }
 
 type CacheCreateReq struct {
+	Store        string   `json:"store"` // The store used for the cache entry
 	Key          string   `json:"key"`
 	FallbackKeys []string `json:"fallback_keys"`
 	Compression  string   `json:"compression"`
@@ -92,6 +94,12 @@ type CachePeekResp struct {
 	Message     string    `json:"message"`
 }
 
+type CacheRegistryResp struct {
+	UUID  string `json:"uuid"`
+	Name  string `json:"name"`
+	Store string `json:"store"` // The store used for the cache registry
+}
+
 type CacheCommitReq struct {
 	UploadID string `json:"upload_id"`
 }
@@ -102,7 +110,7 @@ type CacheCommitResp struct {
 func NewClient(ctx context.Context, version, endpoint, slug, token string) Client {
 	client := &http.Client{}
 
-	client.Transport = roundTripperFunc(
+	client.Transport = gzhttp.Transport(roundTripperFunc(
 		func(req *http.Request) (*http.Response, error) {
 			req = req.Clone(req.Context())
 			req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
@@ -111,7 +119,7 @@ func NewClient(ctx context.Context, version, endpoint, slug, token string) Clien
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 			return http.DefaultTransport.RoundTrip(req)
-		},
+		}),
 	)
 
 	return Client{client: client, slug: slug, endpoint: endpoint}
@@ -169,6 +177,35 @@ func handleCacheResponse[T MessageGetter](span otel.Span, res *http.Response, re
 	}
 }
 
+func (c Client) CacheRegistry(ctx context.Context) (CacheRegistryResp, error) {
+	ctx, span := trace.Start(ctx, "Client.CacheRegistry")
+	defer span.End()
+
+	var resp CacheRegistryResp
+
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s", c.endpoint, c.slug))
+	if err != nil {
+		return resp, trace.NewError(span, "failed to parse url: %w", err)
+	}
+
+	res, resp, err := doRequest[any, CacheRegistryResp](ctx, c.client, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return resp, trace.NewError(span, "failed to do request: %w", err)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return resp, trace.NewError(span, "failed to get cache registry: %s", res.Status)
+	}
+
+	// Assert content type is application/json
+	contentType := res.Header.Get("Content-Type")
+	if !isJSONContentType(contentType) {
+		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
+	}
+
+	return resp, nil
+}
+
 func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (CachePeekResp, bool, error) {
 	ctx, span := trace.Start(ctx, "Client.CachePeekExists")
 	defer span.End()
@@ -219,12 +256,6 @@ func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCo
 		return resp, trace.NewError(span, "failed to commit: %s", res.Status)
 	}
 
-	// Assert content type is application/json
-	contentType := res.Header.Get("Content-Type")
-	if !isJSONContentType(contentType) {
-		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
-	}
-
 	return resp, nil
 }
 
@@ -246,12 +277,6 @@ func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCr
 
 	if res.StatusCode != http.StatusOK {
 		return resp, trace.NewError(span, "failed to save: %s", res.Status)
-	}
-
-	// Assert content type is application/json
-	contentType := res.Header.Get("Content-Type")
-	if !isJSONContentType(contentType) {
-		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
 	}
 
 	return resp, nil
@@ -330,6 +355,12 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 			_ = res.Body.Close()
 		}
 	}()
+
+	// Assert content type is application/json
+	contentType := res.Header.Get("Content-Type")
+	if !isJSONContentType(contentType) {
+		return res, resp, trace.NewError(span, "unexpected content type: %s", contentType)
+	}
 
 	// read the response body
 	if err = json.NewDecoder(res.Body).Decode(&resp); err != nil {

@@ -76,7 +76,7 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Caches: cli.Caches})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Caches: cli.Caches, Common: cli.CommonFlags})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
