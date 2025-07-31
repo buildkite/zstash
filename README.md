@@ -2,6 +2,60 @@
 
 WIP of a cache save and restore tool.
 
+# Usage
+
+Restore sub command.
+
+```
+Usage: zstash restore --token=STRING [flags]
+
+restore files.
+
+Flags:
+  -h, --help                                         Show context-sensitive help.
+      --version
+      --debug                                        Enable debug mode ($BUILDKITE_ZSTASH_DEBUG).
+      --registry-slug="~"                            The registry slug to use ($BUILDKITE_REGISTRY_SLUG).
+      --endpoint="https://agent.buildkite.com/v3"    The endpoint to use. Defaults to the Buildkite agent API endpoint ($BUILDKITE_AGENT_API_ENDPOINT).
+      --token=STRING                                 The buildkite agent access token to use ($BUILDKITE_AGENT_ACCESS_TOKEN).
+      --trace-exporter="noop"                        The trace exporter to use. Defaults to 'noop' ($BUILDKITE_ZSTASH_TRACE_EXPORTER).
+      --organization=STRING                          The organization to use ($BUILDKITE_ORGANIZATION_SLUG).
+      --branch=STRING                                The branch to use ($BUILDKITE_BRANCH).
+      --pipeline=STRING                              The pipeline to use ($BUILDKITE_PIPELINE_SLUG).
+      --bucket-url=STRING                            The bucket URL to use ($BUILDKITE_CACHE_BUCKET_URL).
+      --prefix=STRING                                The prefix to use ($BUILDKITE_CACHE_PREFIX).
+      --format="zip"                                 The format of the archive to use ($BUILDKITE_CACHE_FORMAT).
+      --caches=CACHES,...
+
+      --id=ID,...                                    List of comma delimited cache IDs to restore, defaults to all ($BUILDKITE_CACHE_IDS).
+```
+
+Save sub command.
+
+```
+Usage: zstash save --token=STRING [flags]
+
+save files.
+
+Flags:
+  -h, --help                                         Show context-sensitive help.
+      --version
+      --debug                                        Enable debug mode ($BUILDKITE_ZSTASH_DEBUG).
+      --registry-slug="~"                            The registry slug to use ($BUILDKITE_REGISTRY_SLUG).
+      --endpoint="https://agent.buildkite.com/v3"    The endpoint to use. Defaults to the Buildkite agent API endpoint ($BUILDKITE_AGENT_API_ENDPOINT).
+      --token=STRING                                 The buildkite agent access token to use ($BUILDKITE_AGENT_ACCESS_TOKEN).
+      --trace-exporter="noop"                        The trace exporter to use. Defaults to 'noop' ($BUILDKITE_ZSTASH_TRACE_EXPORTER).
+      --organization=STRING                          The organization to use ($BUILDKITE_ORGANIZATION_SLUG).
+      --branch=STRING                                The branch to use ($BUILDKITE_BRANCH).
+      --pipeline=STRING                              The pipeline to use ($BUILDKITE_PIPELINE_SLUG).
+      --bucket-url=STRING                            The bucket URL to use ($BUILDKITE_CACHE_BUCKET_URL).
+      --prefix=STRING                                The prefix to use ($BUILDKITE_CACHE_PREFIX).
+      --format="zip"                                 The format of the archive to use ($BUILDKITE_CACHE_FORMAT).
+      --caches=CACHES,...
+
+      --id=ID,...                                    List of comma delimited cache IDs to save, defaults to all ($BUILDKITE_CACHE_IDS).
+```
+
 # Verification
 
 To verify the cache and restore worked you can use diff.

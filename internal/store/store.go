@@ -5,11 +5,27 @@ import (
 	"time"
 )
 
+const (
+	// local s3 store type
+	LocalS3Store = "local_s3"
+	// local nsc store type
+	LocalNscStore = "local_nsc"
+)
+
 type TransferInfo struct {
 	BytesTransferred int64
 	TransferSpeed    float64 // in MB/s
 	RequestID        string
 	Duration         time.Duration
+}
+
+func IsValidStore(storeType string) bool {
+	switch storeType {
+	case LocalS3Store, LocalNscStore:
+		return true
+	default:
+		return false
+	}
 }
 
 // calculateTransferSpeedMBps calculates transfer speed in MB/s (decimal megabytes)
