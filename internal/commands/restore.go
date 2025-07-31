@@ -40,7 +40,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 	for _, cache := range globals.Caches {
 		if len(cmd.ID) > 0 && !slices.Contains(cmd.ID, cache.ID) {
-			log.Debug().Str("id", cache.ID).Msg("Skipping cache save for ID")
+			log.Debug().Str("id", cache.ID).Msg("Skipping cache restore for ID")
 			continue
 		}
 

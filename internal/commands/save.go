@@ -96,7 +96,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, client api.Clien
 		return trace.NewError(span, "failed to get cache registry: %w", err)
 	}
 
-	err = validateCacheRegistry(cacheRegistryResp, common)
+	err = validateCacheRegistry(cacheRegistryResp.Store, common)
 	if err != nil {
 
 		printer.Error("❌", "Invalid cache store configuration: %s", err)
@@ -169,18 +169,6 @@ type registrationResult struct {
 
 type uploadResult struct {
 	transferInfo *store.TransferInfo
-}
-
-func validateCacheRegistry(resp api.CacheRegistryResp, common CommonFlags) error {
-	if store.IsValidStore(resp.Store) {
-		return fmt.Errorf("unsupported cache store: %s", resp.Store)
-	}
-
-	if resp.Store == store.LocalS3Store && !strings.HasPrefix(common.BucketURL, "s3://") {
-		return fmt.Errorf("bucket URL for S3 store must start with 's3://': %s", common.BucketURL)
-	}
-
-	return nil
 }
 
 func (cmd *SaveCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span, cache Cache) (*saveData, error) {
@@ -285,7 +273,7 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, span oteltrace.Span, cach
 		return nil, trace.NewError(span, "unsupported store type: %s", cacheStore)
 	}
 
-	printer.Info("⬆️", "Uploading cache archive to S3...")
+	printer.Info("⬆️", "Uploading cache archive...")
 
 	transferInfo, err := blobs.Upload(ctx, archiveResult.fileInfo.ArchivePath, cacheKey)
 	if err != nil {
@@ -352,4 +340,26 @@ func checkPathsExist(paths []string) ([]string, error) {
 	}
 
 	return paths, nil
+}
+
+func validateCacheRegistry(storeVal string, common CommonFlags) error {
+	if !store.IsValidStore(storeVal) {
+		return fmt.Errorf("unsupported cache store: %s", storeVal)
+	}
+
+	switch storeVal {
+	case store.LocalS3Store:
+		if !strings.HasPrefix(common.BucketURL, "s3://") && !strings.HasPrefix(common.BucketURL, "file://") {
+			return fmt.Errorf("bucket URL for S3 store must start with 's3://' or 'file://': %s", common.BucketURL)
+		}
+	case store.LocalNscStore:
+		if common.BucketURL != "" {
+			return fmt.Errorf("NSC store should not have bucket URL set, got: %s", common.BucketURL)
+		}
+		if common.Prefix != "" {
+			return fmt.Errorf("NSC store should not have prefix set, got: %s", common.Prefix)
+		}
+	}
+
+	return nil
 }
