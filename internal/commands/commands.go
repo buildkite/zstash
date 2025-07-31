@@ -12,19 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type Cache struct {
-	// ID of the cache entry to save.
-	ID string
-	// Key of the cache entry to save, this can be a template string.
-	Key string
-	// Fallback keys to use, this is a comma delimited list of key template strings.
-	FallbackKeys []string
-	// store used to upload / download
-	Store string
-	// Paths to remove.
-	Paths []string
-}
-
 type CommonFlags struct {
 	Organization string `flag:"organization" help:"The organization to use." env:"BUILDKITE_ORGANIZATION_SLUG"`
 	Branch       string `flag:"branch" help:"The branch to use." env:"BUILDKITE_BRANCH"`

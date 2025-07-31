@@ -38,6 +38,10 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 			continue
 		}
 
+		if err := cache.Validate(); err != nil {
+			return fmt.Errorf("cache validation failed for ID %s: %w", cache.ID, err)
+		}
+
 		if err := cmd.saveCache(ctx, cache, globals.Client, globals.Printer, globals.Common); err != nil {
 			return err
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,6 +39,15 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Info().Str("version", globals.Version).Msg("Running RestoreCmd")
 
 	for _, cache := range globals.Caches {
+		if len(cmd.ID) > 0 && !slices.Contains(cmd.ID, cache.ID) {
+			log.Debug().Str("id", cache.ID).Msg("Skipping cache save for ID")
+			continue
+		}
+
+		if err := cache.Validate(); err != nil {
+			return fmt.Errorf("cache validation failed for ID %s: %w", cache.ID, err)
+		}
+
 		if err := cmd.restoreCache(ctx, cache, globals.Client, globals.Printer, globals.Common); err != nil {
 			return err
 		}
