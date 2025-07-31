@@ -46,7 +46,7 @@ func main() {
 			"version": version,
 		},
 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
-		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml", ".buildkite/cache.json"),
+		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml", ".buildkite/cache.yml", ".buildkite/cache.json"),
 		kong.BindTo(ctx, (*context.Context)(nil)))
 
 	// check the token is set

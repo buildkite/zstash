@@ -13,15 +13,13 @@ import (
 )
 
 type Cache struct {
-	// ID of the cache entry to save." required:"true
+	// ID of the cache entry to save.
 	ID string
-	// Key of the cache entry to save, this can be a template string." required:"true
+	// Key of the cache entry to save, this can be a template string.
 	Key string
 	// Fallback keys to use, this is a comma delimited list of key template strings.
 	FallbackKeys []string
-	// Recursively search for matches when generating cache keys.
-	RecursiveChecksums bool
-	// store used to upload / download" enum:"s3,nsc" default:"s3
+	// store used to upload / download
 	Store string
 	// Paths to remove.
 	Paths []string
@@ -55,7 +53,7 @@ func checkPath(paths []string) ([]string, error) {
 }
 
 // restoreKeys generates a list of restore keys from the provided ID and restore key list.
-func restoreKeys(id string, restoreKeyTemplates []string, recursive bool) ([]string, error) {
+func restoreKeys(id string, restoreKeyTemplates []string) ([]string, error) {
 	restoreKeys := make([]string, len(restoreKeyTemplates))
 
 	log.Debug().Str("id", id).Strs("restore_keys", restoreKeyTemplates).Msg("templating restore keys")
@@ -67,7 +65,7 @@ func restoreKeys(id string, restoreKeyTemplates []string, recursive bool) ([]str
 
 		log.Debug().Str("restore_key_template", restoreKeyTemplate).Msg("templating restore key")
 
-		restoreKey, err := key.Template(id, restoreKeyTemplate, recursive)
+		restoreKey, err := key.Template(id, restoreKeyTemplate, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to template restore key: %w", err)
 		}

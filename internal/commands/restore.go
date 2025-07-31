@@ -28,7 +28,7 @@ const (
 )
 
 type RestoreCmd struct {
-	IDs []string `flag:"skip-ids" help:"Comma-separated list of cache IDs to save."`
+	ID []string `flag:"id" help:"List of comma delimited cache IDs to restore, defaults to all." env:"BUILDKITE_CACHE_IDS"`
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
@@ -163,12 +163,12 @@ func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Sp
 		return nil, trace.NewError(span, "failed to check paths: %w", err)
 	}
 
-	cacheKey, err := key.Template(cache.ID, cache.Key, cache.RecursiveChecksums)
+	cacheKey, err := key.Template(cache.ID, cache.Key, false)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to template key: %w", err)
 	}
 
-	fallbackCacheKeys, err := restoreKeys(cache.ID, cache.FallbackKeys, cache.RecursiveChecksums)
+	fallbackCacheKeys, err := restoreKeys(cache.ID, cache.FallbackKeys)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to restore keys: %w", err)
 	}
@@ -203,7 +203,8 @@ func (cmd *RestoreCmd) checkCacheExists(ctx context.Context, span oteltrace.Span
 }
 
 func (cmd *RestoreCmd) downloadCache(ctx context.Context, span oteltrace.Span, cacheResult *cacheExistenceResult, common CommonFlags) (*downloadResult, error) {
-	log.Info().Str("bucket_url", common.BucketURL).
+	log.Info().
+		Str("bucket_url", common.BucketURL).
 		Str("prefix", common.Prefix).
 		Str("store", cacheResult.store).
 		Msg("restoring cache")

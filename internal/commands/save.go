@@ -23,7 +23,7 @@ import (
 )
 
 type SaveCmd struct {
-	IDs []string `flag:"skip-ids" help:"Comma-separated list of cache IDs to save."`
+	ID []string `flag:"id" help:"List of comma delimited cache IDs to save, defaults to all." env:"BUILDKITE_CACHE_IDS"`
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
@@ -33,7 +33,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Info().Str("version", globals.Version).Msg("Running SaveCmd")
 
 	for _, cache := range globals.Caches {
-		if len(cmd.IDs) > 0 && !slices.Contains(cmd.IDs, cache.ID) {
+		if len(cmd.ID) > 0 && !slices.Contains(cmd.ID, cache.ID) {
 			log.Debug().Str("id", cache.ID).Msg("Skipping cache save for ID")
 			continue
 		}
@@ -185,12 +185,12 @@ func (cmd *SaveCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span,
 		return nil, trace.NewError(span, "failed to check paths: %w", err)
 	}
 
-	cacheKey, err := key.Template(cache.ID, cache.Key, cache.RecursiveChecksums)
+	cacheKey, err := key.Template(cache.ID, cache.Key, false)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to template key: %w", err)
 	}
 
-	fallbackKeys, err := restoreKeys(cache.ID, cache.FallbackKeys, cache.RecursiveChecksums)
+	fallbackKeys, err := restoreKeys(cache.ID, cache.FallbackKeys)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to restore keys: %w", err)
 	}
@@ -258,7 +258,8 @@ func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, span oteltrace.Span,
 }
 
 func (cmd *SaveCmd) uploadArchive(ctx context.Context, span oteltrace.Span, cacheKey string, cacheStore string, archiveResult *archiveResult, printer *console.Printer, common CommonFlags) (*uploadResult, error) {
-	log.Info().Str("bucket_url", common.BucketURL).
+	log.Info().
+		Str("bucket_url", common.BucketURL).
 		Str("prefix", common.Prefix).
 		Str("store", cacheStore).
 		Msg("Uploading cache archive")
