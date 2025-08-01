@@ -168,7 +168,7 @@ type extractionResult struct {
 }
 
 func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span, cache Cache) (*restoreData, error) {
-	paths, err := checkPath(cache.Paths)
+	paths, err := templatedPaths(cache.ID, cache.Paths)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to check paths: %w", err)
 	}

@@ -30,13 +30,34 @@ type Globals struct {
 	Common  CommonFlags
 }
 
-// checkPath validates the provided path and returns a list of paths.
-func checkPath(paths []string) ([]string, error) {
-	if len(paths) == 0 {
+// templatedPaths validates the provided path and returns a list of paths that have been templated.
+func templatedPaths(id string, pathsTemplates []string) ([]string, error) {
+	if len(pathsTemplates) == 0 {
 		return nil, fmt.Errorf("no paths provided")
 	}
 
-	return paths, nil
+	resolvedPaths := make([]string, len(pathsTemplates))
+
+	log.Debug().Str("id", id).Strs("paths_templates", pathsTemplates).Msg("templating paths")
+
+	for n, pathTemplate := range pathsTemplates {
+
+		// trim quotes and whitespace
+		resolvedPathTemplate := strings.Trim(pathTemplate, "\"' \t")
+
+		log.Debug().Str("path_template", resolvedPathTemplate).Msg("templating path")
+
+		resolvedPath, err := key.Template(id, resolvedPathTemplate, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve templated path %q: %w", pathTemplate, err)
+		}
+
+		log.Debug().Str("resolved_path", resolvedPath).Msg("resolved path")
+
+		resolvedPaths[n] = resolvedPath
+	}
+
+	return resolvedPaths, nil
 }
 
 // restoreKeys generates a list of restore keys from the provided ID and restore key list.

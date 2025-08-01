@@ -172,9 +172,9 @@ type uploadResult struct {
 }
 
 func (cmd *SaveCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span, cache Cache) (*saveData, error) {
-	paths, err := checkPath(cache.Paths)
+	paths, err := templatedPaths(cache.ID, cache.Paths)
 	if err != nil {
-		return nil, trace.NewError(span, "failed to check paths: %w", err)
+		return nil, trace.NewError(span, "failed to template paths: %w", err)
 	}
 
 	cacheKey, err := key.Template(cache.ID, cache.Key, false)
