@@ -41,7 +41,6 @@ func isJSONContentType(contentType string) bool {
 type Client struct {
 	client   *http.Client
 	endpoint string
-	slug     string
 }
 
 type CacheCreateReq struct {
@@ -107,7 +106,7 @@ type CacheCommitResp struct {
 	Message string `json:"message"`
 }
 
-func NewClient(ctx context.Context, version, endpoint, slug, token string) Client {
+func NewClient(ctx context.Context, version, endpoint, token string) Client {
 	client := &http.Client{}
 
 	client.Transport = gzhttp.Transport(roundTripperFunc(
@@ -122,7 +121,7 @@ func NewClient(ctx context.Context, version, endpoint, slug, token string) Clien
 		}),
 	)
 
-	return Client{client: client, slug: slug, endpoint: endpoint}
+	return Client{client: client, endpoint: endpoint}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -177,13 +176,13 @@ func handleCacheResponse[T MessageGetter](span otel.Span, res *http.Response, re
 	}
 }
 
-func (c Client) CacheRegistry(ctx context.Context) (CacheRegistryResp, error) {
+func (c Client) CacheRegistry(ctx context.Context, registry string) (CacheRegistryResp, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheRegistry")
 	defer span.End()
 
 	var resp CacheRegistryResp
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s", c.endpoint, registry))
 	if err != nil {
 		return resp, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -206,7 +205,7 @@ func (c Client) CacheRegistry(ctx context.Context) (CacheRegistryResp, error) {
 	return resp, nil
 }
 
-func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (CachePeekResp, bool, error) {
+func (c Client) CachePeekExists(ctx context.Context, registry string, create CachePeekReq) (CachePeekResp, bool, error) {
 	ctx, span := trace.Start(ctx, "Client.CachePeekExists")
 	defer span.End()
 
@@ -217,7 +216,7 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 		return resp, false, trace.NewError(span, "failed to marshal query params: %w", err)
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/peek", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/peek", c.endpoint, registry))
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -232,13 +231,13 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 	return handleCacheResponse(span, res, resp)
 }
 
-func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCommitResp, error) {
+func (c Client) CacheCommit(ctx context.Context, registry string, commit CacheCommitReq) (CacheCommitResp, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheCommit")
 	defer span.End()
 
 	var resp CacheCommitResp
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/commit", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/commit", c.endpoint, registry))
 	if err != nil {
 		return resp, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -259,13 +258,13 @@ func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCo
 	return resp, nil
 }
 
-func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCreateResp, error) {
+func (c Client) CacheCreate(ctx context.Context, registry string, create CacheCreateReq) (CacheCreateResp, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheCreate")
 	defer span.End()
 
 	var resp CacheCreateResp
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/store", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/store", c.endpoint, registry))
 	if err != nil {
 		return resp, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -282,7 +281,7 @@ func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCr
 	return resp, nil
 }
 
-func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (CacheRetrieveResp, bool, error) {
+func (c Client) CacheRetrieve(ctx context.Context, registry string, retrieve CacheRetrieveReq) (CacheRetrieveResp, bool, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheRetrieve")
 	defer span.End()
 
@@ -293,7 +292,7 @@ func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (C
 		return resp, false, trace.NewError(span, "failed to marshal query params: %w", err)
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/retrieve", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/retrieve", c.endpoint, registry))
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to parse url: %w", err)
 	}

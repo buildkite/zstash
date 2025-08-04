@@ -30,7 +30,7 @@ func TestValidateCacheRegistry(t *testing.T) {
 		{
 			name:     "valid nsc store with empty config",
 			storeVal: store.LocalNscStore,
-			common:   CommonFlags{BucketURL: "", Prefix: ""},
+			common:   CommonFlags{BucketURL: ""},
 			wantErr:  false,
 		},
 		{
@@ -72,20 +72,6 @@ func TestValidateCacheRegistry(t *testing.T) {
 			name:     "nsc store with bucket URL should fail",
 			storeVal: store.LocalNscStore,
 			common:   CommonFlags{BucketURL: "s3://my-bucket"},
-			wantErr:  true,
-			errMsg:   "NSC store should not have bucket URL set",
-		},
-		{
-			name:     "nsc store with prefix should fail",
-			storeVal: store.LocalNscStore,
-			common:   CommonFlags{Prefix: "cache/"},
-			wantErr:  true,
-			errMsg:   "NSC store should not have prefix set",
-		},
-		{
-			name:     "nsc store with both bucket URL and prefix should fail",
-			storeVal: store.LocalNscStore,
-			common:   CommonFlags{BucketURL: "s3://my-bucket", Prefix: "cache/"},
 			wantErr:  true,
 			errMsg:   "NSC store should not have bucket URL set",
 		},

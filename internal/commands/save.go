@@ -19,7 +19,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
-	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type SaveCmd struct {
@@ -42,7 +41,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 			return fmt.Errorf("cache validation failed for ID %s: %w", cache.ID, err)
 		}
 
-		if err := cmd.saveCache(ctx, cache, globals.Client, globals.Printer, globals.Common); err != nil {
+		if err := cmd.saveCache(ctx, cache, globals); err != nil {
 			return err
 		}
 	}
@@ -50,88 +49,93 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, client api.Client, printer *console.Printer, common CommonFlags) error {
+func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "saveCache")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("id", cache.ID),
 		attribute.String("key", cache.Key),
+		attribute.String("registry", cache.Registry),
 		attribute.StringSlice("fallback_keys", cache.FallbackKeys),
 		attribute.StringSlice("paths", cache.Paths),
 	)
 
-	printer.Info("❔", "Validating and preparing cache save for ID: %s", cache.ID)
-
-	// Phase 1: Validate and prepare data
-	data, err := cmd.validateAndPrepare(ctx, span, cache)
-	if err != nil {
-
-		printer.Error("❌", "Invalid cache configuration ID: %s: %s", cache.ID, err)
-
-		return fmt.Errorf("failed to validate and prepare cache: %w", err)
+	if cache.Registry == "" {
+		cache.Registry = "~" // default to "~" if not set
 	}
 
-	printer.Info("💾", "Starting cache save for id: %s", cache.ID)
-	printer.Info("🔍", "Checking if cache already exists for key: %s", data.cacheKey)
+	globals.Printer.Info("❔", "Validating and preparing cache save for Registry: %s ID: %s ", cache.Registry, cache.ID)
 
-	_, exists, err := client.CachePeekExists(ctx, api.CachePeekReq{
+	// Phase 1: Validate and prepare data
+	data, err := cmd.validateAndPrepare(cache)
+	if err != nil {
+
+		globals.Printer.Error("❌", "Invalid cache configuration ID: %s: %s", cache.ID, err)
+
+		return trace.NewError(span, "failed to validate and prepare cache: %w", err)
+	}
+
+	globals.Printer.Info("💾", "Starting cache save for id: %s", cache.ID)
+	globals.Printer.Info("🔍", "Checking if cache already exists for key: %s", data.cacheKey)
+
+	_, exists, err := globals.Client.CachePeekExists(ctx, cache.Registry, api.CachePeekReq{
 		Key:    data.cacheKey,
-		Branch: common.Branch,
+		Branch: globals.Common.Branch,
 	})
 	if err != nil {
 		return trace.NewError(span, "failed to peek cache: %w", err)
 	}
 
 	if exists {
-		printer.Success("✅", "Cache already exists for key: %s", data.cacheKey)
+		globals.Printer.Success("✅", "Cache already exists for key: %s", data.cacheKey)
 		fmt.Println("true") // write to stdout
 		return nil
 	}
 
-	printer.Info("🔍", "Looking up the cache registry for key: %s", data.cacheKey)
+	globals.Printer.Info("🔍", "Looking up the cache registry for key: %s", data.cacheKey)
 
-	cacheRegistryResp, err := client.CacheRegistry(ctx)
+	cacheRegistryResp, err := globals.Client.CacheRegistry(ctx, cache.Registry)
 	if err != nil {
 		return trace.NewError(span, "failed to get cache registry: %w", err)
 	}
 
-	err = validateCacheRegistry(cacheRegistryResp.Store, common)
+	err = validateCacheRegistry(cacheRegistryResp.Store, globals.Common)
 	if err != nil {
 
-		printer.Error("❌", "Invalid cache store configuration: %s", err)
+		globals.Printer.Error("❌", "Invalid cache store configuration: %s", err)
 
 		return fmt.Errorf("invalid cache store configuration: %w", err)
 	}
 
-	printer.Info("📦", "Creating new cache entry for key: %s store: %s", data.cacheKey, cacheRegistryResp.Store)
+	globals.Printer.Info("📦", "Creating new cache entry for key: %s store: %s", data.cacheKey, cacheRegistryResp.Store)
 
 	// Phase 3: Build archive
-	archiveResult, err := cmd.buildArchive(ctx, span, data, printer)
+	archiveResult, err := cmd.buildArchive(ctx, data, globals.Printer)
 	if err != nil {
 		return err
 	}
 
 	// Phase 4: Register cache entry
-	registrationResult, err := cmd.registerCacheEntry(ctx, span, data, archiveResult, client, common, cacheRegistryResp.Store)
+	registrationResult, err := cmd.registerCacheEntry(ctx, data, archiveResult, globals.Client, globals.Common, cache.Registry, cacheRegistryResp.Store)
 	if err != nil {
 		return err
 	}
 
-	printer.Info("🚀", "Registering cache entry with upload ID: %s", registrationResult.uploadID)
+	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", registrationResult.uploadID)
 
 	// Phase 5: Upload archive
-	uploadResult, err := cmd.uploadArchive(ctx, span, data.cacheKey, cacheRegistryResp.Store, archiveResult, printer, common)
+	uploadResult, err := cmd.uploadArchive(ctx, data.cacheKey, cacheRegistryResp.Store, archiveResult, globals.Printer, globals.Common)
 	if err != nil {
 		return err
 	}
 
 	// Phase 6: Commit cache
-	if err := cmd.commitCache(ctx, span, registrationResult.uploadID, client); err != nil {
+	if err := cmd.commitCache(ctx, globals.Client, cache.Registry, registrationResult.uploadID); err != nil {
 		return err
 	}
 
-	printer.Success("🎉", "Cache committed successfully")
+	globals.Printer.Success("🎉", "Cache committed successfully")
 
 	// Phase 7: Print summary
 	t := table.New().
@@ -146,7 +150,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, client api.Clien
 		Row("Upload Duration", uploadResult.transferInfo.Duration.String()).
 		Row("Paths", strings.Join(data.paths, ", "))
 
-	printer.Info("📊", "Cache save summary:\n%s", t.Render())
+	globals.Printer.Info("📊", "Cache save summary:\n%s", t.Render())
 
 	fmt.Println("true") // write to stdout
 
@@ -171,25 +175,25 @@ type uploadResult struct {
 	transferInfo *store.TransferInfo
 }
 
-func (cmd *SaveCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span, cache Cache) (*saveData, error) {
+func (cmd *SaveCmd) validateAndPrepare(cache Cache) (*saveData, error) {
 	paths, err := checkPath(cache.Paths)
 	if err != nil {
-		return nil, trace.NewError(span, "failed to check paths: %w", err)
+		return nil, fmt.Errorf("failed to check paths: %w", err)
 	}
 
 	cacheKey, err := key.Template(cache.ID, cache.Key, false)
 	if err != nil {
-		return nil, trace.NewError(span, "failed to template key: %w", err)
+		return nil, fmt.Errorf("failed to template key: %w", err)
 	}
 
 	fallbackKeys, err := restoreKeys(cache.ID, cache.FallbackKeys)
 	if err != nil {
-		return nil, trace.NewError(span, "failed to restore keys: %w", err)
+		return nil, fmt.Errorf("failed to restore keys: %w", err)
 	}
 
 	_, err = checkPathsExist(paths)
 	if err != nil {
-		return nil, trace.NewError(span, "failed to check paths exist: %w", err)
+		return nil, fmt.Errorf("failed to check paths exist: %w", err)
 	}
 
 	return &saveData{
@@ -199,7 +203,7 @@ func (cmd *SaveCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span,
 	}, nil
 }
 
-func (cmd *SaveCmd) buildArchive(ctx context.Context, span oteltrace.Span, data *saveData, printer *console.Printer) (*archiveResult, error) {
+func (cmd *SaveCmd) buildArchive(ctx context.Context, data *saveData, printer *console.Printer) (*archiveResult, error) {
 	printer.Info("🗜️", "Building archive for paths: %v", data.paths)
 
 	fileInfo, err := archive.BuildArchive(ctx, data.paths, data.cacheKey)
@@ -226,8 +230,8 @@ func (cmd *SaveCmd) buildArchive(ctx context.Context, span oteltrace.Span, data 
 	}, nil
 }
 
-func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, span oteltrace.Span, data *saveData, archiveResult *archiveResult, client api.Client, common CommonFlags, store string) (*registrationResult, error) {
-	createResp, err := client.CacheCreate(ctx, api.CacheCreateReq{
+func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, data *saveData, archiveResult *archiveResult, client api.Client, common CommonFlags, registry, store string) (*registrationResult, error) {
+	createResp, err := client.CacheCreate(ctx, registry, api.CacheCreateReq{
 		Key:          data.cacheKey,
 		FallbackKeys: data.fallbackKeys,
 		Compression:  common.Format,
@@ -241,7 +245,7 @@ func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, span oteltrace.Span,
 		Store:        store,
 	})
 	if err != nil {
-		return nil, trace.NewError(span, "failed to create cache: %w", err)
+		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
 
 	return &registrationResult{
@@ -249,10 +253,9 @@ func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, span oteltrace.Span,
 	}, nil
 }
 
-func (cmd *SaveCmd) uploadArchive(ctx context.Context, span oteltrace.Span, cacheKey string, cacheStore string, archiveResult *archiveResult, printer *console.Printer, common CommonFlags) (*uploadResult, error) {
+func (cmd *SaveCmd) uploadArchive(ctx context.Context, cacheKey string, cacheStore string, archiveResult *archiveResult, printer *console.Printer, common CommonFlags) (*uploadResult, error) {
 	log.Info().
 		Str("bucket_url", common.BucketURL).
-		Str("prefix", common.Prefix).
 		Str("store", cacheStore).
 		Msg("Uploading cache archive")
 
@@ -263,21 +266,21 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, span oteltrace.Span, cach
 
 	switch cacheStore {
 	case store.LocalS3Store:
-		blobs, err = store.NewGocloudBlob(ctx, common.BucketURL, common.Prefix)
+		blobs, err = store.NewGocloudBlob(ctx, common.BucketURL, "")
 		if err != nil {
-			return nil, trace.NewError(span, "failed to create s3 blob store: %w", err)
+			return nil, fmt.Errorf("failed to create s3 blob store: %w", err)
 		}
 	case store.LocalNscStore:
 		blobs = store.NewNscStore()
 	default:
-		return nil, trace.NewError(span, "unsupported store type: %s", cacheStore)
+		return nil, fmt.Errorf("unsupported store type: %s", cacheStore)
 	}
 
 	printer.Info("⬆️", "Uploading cache archive...")
 
 	transferInfo, err := blobs.Upload(ctx, archiveResult.fileInfo.ArchivePath, cacheKey)
 	if err != nil {
-		return nil, trace.NewError(span, "failed to upload cache: %w", err)
+		return nil, fmt.Errorf("failed to upload cache: %w", err)
 	}
 
 	printer.Success("✅", "Upload completed: %s at %.2fMB/s",
@@ -296,12 +299,12 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, span oteltrace.Span, cach
 	}, nil
 }
 
-func (cmd *SaveCmd) commitCache(ctx context.Context, span oteltrace.Span, uploadID string, client api.Client) error {
-	commitResp, err := client.CacheCommit(ctx, api.CacheCommitReq{
+func (cmd *SaveCmd) commitCache(ctx context.Context, client api.Client, registry, uploadID string) error {
+	commitResp, err := client.CacheCommit(ctx, registry, api.CacheCommitReq{
 		UploadID: uploadID,
 	})
 	if err != nil {
-		return trace.NewError(span, "failed to commit cache: %w", err)
+		return fmt.Errorf("failed to commit cache: %w", err)
 	}
 
 	log.Debug().Str("message", commitResp.Message).
@@ -355,9 +358,6 @@ func validateCacheRegistry(storeVal string, common CommonFlags) error {
 	case store.LocalNscStore:
 		if common.BucketURL != "" {
 			return fmt.Errorf("NSC store should not have bucket URL set, got: %s", common.BucketURL)
-		}
-		if common.Prefix != "" {
-			return fmt.Errorf("NSC store should not have prefix set, got: %s", common.Prefix)
 		}
 	}
 

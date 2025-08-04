@@ -10,14 +10,10 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	client := NewClient(context.Background(), "1.0.0", "https://api.example.com", "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", "https://api.example.com", "test-token")
 
 	if client.endpoint != "https://api.example.com" {
 		t.Errorf("Expected endpoint 'https://api.example.com', got '%s'", client.endpoint)
-	}
-
-	if client.slug != "test-slug" {
-		t.Errorf("Expected slug 'test-slug', got '%s'", client.slug)
 	}
 
 	if client.client == nil {
@@ -45,14 +41,14 @@ func TestCachePeekExists_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CachePeekReq{
 		Key:    "test-key",
 		Branch: "main",
 	}
 
-	resp, exists, err := client.CachePeekExists(context.Background(), req)
+	resp, exists, err := client.CachePeekExists(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -74,14 +70,14 @@ func TestCachePeekExists_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CachePeekReq{
 		Key:    "nonexistent-key",
 		Branch: "main",
 	}
 
-	resp, exists, err := client.CachePeekExists(context.Background(), req)
+	resp, exists, err := client.CachePeekExists(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -103,14 +99,14 @@ func TestCachePeekExists_WrongContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CachePeekReq{
 		Key:    "test-key",
 		Branch: "main",
 	}
 
-	_, _, err := client.CachePeekExists(context.Background(), req)
+	_, _, err := client.CachePeekExists(context.Background(), "test-slug", req)
 	if err == nil {
 		t.Error("Expected error for wrong content type")
 	}
@@ -142,7 +138,7 @@ func TestCacheCreate_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CacheCreateReq{
 		Key:          "test-key",
@@ -157,7 +153,7 @@ func TestCacheCreate_Success(t *testing.T) {
 		Organization: "test-org",
 	}
 
-	resp, err := client.CacheCreate(context.Background(), req)
+	resp, err := client.CacheCreate(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -195,7 +191,7 @@ func TestCacheRetrieve_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CacheRetrieveReq{
 		Key:          "test-key",
@@ -203,7 +199,7 @@ func TestCacheRetrieve_Success(t *testing.T) {
 		FallbackKeys: "fallback-1,fallback-2",
 	}
 
-	resp, found, err := client.CacheRetrieve(context.Background(), req)
+	resp, found, err := client.CacheRetrieve(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -229,14 +225,14 @@ func TestCacheRetrieve_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CacheRetrieveReq{
 		Key:    "nonexistent-key",
 		Branch: "main",
 	}
 
-	resp, found, err := client.CacheRetrieve(context.Background(), req)
+	resp, found, err := client.CacheRetrieve(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -271,13 +267,13 @@ func TestCacheCommit_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CacheCommitReq{
 		UploadID: "upload-123",
 	}
 
-	resp, err := client.CacheCommit(context.Background(), req)
+	resp, err := client.CacheCommit(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -295,13 +291,13 @@ func TestCacheCommit_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CacheCommitReq{
 		UploadID: "invalid-upload-id",
 	}
 
-	_, err := client.CacheCommit(context.Background(), req)
+	_, err := client.CacheCommit(context.Background(), "test-slug", req)
 	if err == nil {
 		t.Error("Expected error for bad request")
 	}
@@ -315,14 +311,14 @@ func TestCachePeekExists_CacheRegistryNotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CachePeekReq{
 		Key:    "test-key",
 		Branch: "main",
 	}
 
-	_, _, err := client.CachePeekExists(context.Background(), req)
+	_, _, err := client.CachePeekExists(context.Background(), "test-slug", req)
 	if err == nil {
 		t.Error("Expected error for cache registry not found")
 	}
@@ -439,14 +435,14 @@ func TestCachePeekExists_ContentTypeWithCharset(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(context.Background(), "1.0.0", server.URL, "test-slug", "test-token")
+	client := NewClient(context.Background(), "1.0.0", server.URL, "test-token")
 
 	req := CachePeekReq{
 		Key:    "test-key",
 		Branch: "main",
 	}
 
-	resp, exists, err := client.CachePeekExists(context.Background(), req)
+	resp, exists, err := client.CachePeekExists(context.Background(), "test-slug", req)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
