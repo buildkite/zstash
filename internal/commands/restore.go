@@ -237,7 +237,7 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, cacheResult *cacheExis
 		if err != nil {
 			return nil, fmt.Errorf("failed to create s3 blob store: %w", err)
 		}
-	case store.LocalNscStore:
+	case store.LocalHostedAgents:
 		blobs = store.NewNscStore()
 	default:
 		return nil, fmt.Errorf("unsupported store type: %s", cacheResult.store)

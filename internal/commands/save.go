@@ -270,7 +270,7 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, cacheKey string, cacheSto
 		if err != nil {
 			return nil, fmt.Errorf("failed to create s3 blob store: %w", err)
 		}
-	case store.LocalNscStore:
+	case store.LocalHostedAgents:
 		blobs = store.NewNscStore()
 	default:
 		return nil, fmt.Errorf("unsupported store type: %s", cacheStore)
@@ -355,7 +355,7 @@ func validateCacheRegistry(storeVal string, common CommonFlags) error {
 		if !strings.HasPrefix(common.BucketURL, "s3://") && !strings.HasPrefix(common.BucketURL, "file://") {
 			return fmt.Errorf("bucket URL for S3 store must start with 's3://' or 'file://': %s", common.BucketURL)
 		}
-	case store.LocalNscStore:
+	case store.LocalHostedAgents:
 		if common.BucketURL != "" {
 			return fmt.Errorf("NSC store should not have bucket URL set, got: %s", common.BucketURL)
 		}
