@@ -181,7 +181,7 @@ func (cmd *SaveCmd) validateAndPrepare(cache Cache) (*saveData, error) {
 		return nil, fmt.Errorf("failed to check paths: %w", err)
 	}
 
-	cacheKey, err := key.Template(cache.ID, cache.Key, false)
+	cacheKey, err := key.Template(cache.ID, cache.Key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to template key: %w", err)
 	}

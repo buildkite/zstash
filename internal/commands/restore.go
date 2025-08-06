@@ -175,7 +175,7 @@ func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Sp
 		return nil, trace.NewError(span, "failed to check paths: %w", err)
 	}
 
-	cacheKey, err := key.Template(cache.ID, cache.Key, false)
+	cacheKey, err := key.Template(cache.ID, cache.Key)
 	if err != nil {
 		return nil, trace.NewError(span, "failed to template key: %w", err)
 	}

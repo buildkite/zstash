@@ -56,6 +56,58 @@ Flags:
       --id=ID,...                                    List of comma delimited cache IDs to save, defaults to all ($BUILDKITE_CACHE_IDS).
 ```
 
+# Cache Key Pattern Matching
+
+zstash supports flexible pattern matching for cache keys with different levels of recursion:
+
+## Pattern Types
+
+- **`package-lock.json`** - Non-recursive, matches files only in the current directory
+- **`lib/package-lock.json`** - Specific path, matches the exact file relative to current directory  
+- **`**/pom.xml`** - Recursive search, finds `pom.xml` files in any subdirectory
+
+## How Pattern Matching Works
+
+```mermaid
+flowchart TD
+    A[Pattern Input] --> B{Pattern Type?}
+    
+    B -->|Starts with '**/'| C[Recursive Pattern<br/>Strip '**/' prefix]
+    B -->|Contains '/'| D[Specific Path<br/>Direct file check]
+    B -->|Basename only| E[Non-recursive Pattern<br/>Current directory only]
+    
+    C --> F[Walk all directories<br/>Match basename everywhere]
+    D --> G[Check exact path<br/>No directory walking]
+    E --> H[Walk current directory only<br/>Skip subdirectories]
+    
+    F --> I[Collect matching files]
+    G --> I
+    H --> I
+    
+    I --> J[Sort files for<br/>deterministic output]
+    J --> K[Calculate checksums<br/>and combine]
+    
+    style C fill:#e1f5fe,stroke:#01579b,color:#000
+    style D fill:#f3e5f5,stroke:#4a148c,color:#000
+    style E fill:#e8f5e8,stroke:#1b5e20,color:#000
+```
+
+## Examples
+
+```yaml
+# Non-recursive - only matches go.mod in current directory
+key: "{{ checksum "go.mod" }}"
+
+# Specific path - matches exact file location  
+key: "{{ checksum "backend/go.mod" }}"
+
+# Recursive - finds go.mod in any subdirectory
+key: "{{ checksum "**/go.mod" }}"
+
+# Multiple patterns
+key: "{{ checksum "package.json" "**/yarn.lock" }}"
+```
+
 # Verification
 
 To verify the cache and restore worked you can use diff.

@@ -26,10 +26,10 @@ var ignoreFiles = []string{
 	".keep",
 }
 
-func Template(id, key string, recursive bool) (string, error) {
+func Template(id, key string) (string, error) {
 	tpl := template.New("key").Option("missingkey=zero").Funcs(template.FuncMap{
 		"id":       getID(id),
-		"checksum": checksumPaths(recursive),
+		"checksum": checksumPaths(),
 		"env":      getEnv,
 		"agent":    getAgent,
 	})
@@ -85,7 +85,7 @@ func getEnv(key string) string {
 	return env
 }
 
-func checksumPaths(recursive bool) func(files ...string) string {
+func checksumPaths() func(files ...string) string {
 	return func(patterns ...string) string {
 		log.Info().Strs("files", patterns).Msg("checksumPaths")
 
@@ -94,7 +94,7 @@ func checksumPaths(recursive bool) func(files ...string) string {
 		}
 
 		// Resolve all patterns to actual file paths
-		files, err := resolveFiles(patterns, recursive)
+		files, err := resolveFiles(patterns)
 		if err != nil {
 			log.Error().Err(err).Msg("error resolving files")
 			return ""
@@ -126,49 +126,66 @@ func checksumPaths(recursive bool) func(files ...string) string {
 }
 
 // resolveFiles returns a sorted list of file paths that match the given patterns.
-// Directories are expanded to include all their files. The ignore list and recursive
-// settings are consistently applied throughout the resolution process.
-func resolveFiles(patterns []string, recursive bool) ([]string, error) {
+// Patterns starting with "**/)" enable recursive search for the basename.
+// Other patterns are handled as specific paths or non-recursive basename matches.
+func resolveFiles(patterns []string) ([]string, error) {
 	var files []string
-	
-	// First handle specific relative paths (contain directory separators)
-	// These should work even in non-recursive mode
-	remainingPatterns := []string{}
+
+	// Parse patterns to determine which need recursive vs non-recursive handling
+	recursivePatterns := []string{}
+	specificPaths := []string{}
+	basenamePatterns := []string{}
+
 	for _, pattern := range patterns {
-		if filepath.Dir(pattern) != "." {
-			// Specific relative path - check if it exists directly
-			cleanPath := filepath.Clean(pattern)
-			info, err := os.Stat(cleanPath)
-			if err == nil {
-				if !info.IsDir() {
-					// Check if it's in ignore list
-					ignored := false
-					for _, ignore := range ignoreFiles {
-						if strings.HasSuffix(cleanPath, ignore) {
-							ignored = true
-							break
-						}
-					}
-					if !ignored {
-						files = append(files, cleanPath)
-						log.Debug().Str("path", cleanPath).Msg("specific path resolved")
-					}
-				}
-				// If it's a directory, we'll handle it in the walk below
-			}
-		} else {
-			// Basename pattern - handle in walk
-			remainingPatterns = append(remainingPatterns, pattern)
+		switch {
+		case strings.HasPrefix(pattern, "**/"):
+			// Recursive pattern - extract basename after "*/"
+			basename := strings.TrimPrefix(pattern, "**/")
+			recursivePatterns = append(recursivePatterns, basename)
+			log.Debug().Str("pattern", pattern).Str("basename", basename).Msg("recursive pattern detected")
+		case filepath.Dir(pattern) != ".":
+			// Specific relative path
+			specificPaths = append(specificPaths, pattern)
+		default:
+			// Basename pattern (non-recursive)
+			basenamePatterns = append(basenamePatterns, pattern)
 		}
 	}
 
-	// Build a map of remaining patterns for walk
-	wantedPatterns := make(map[string]struct{}, len(remainingPatterns))
-	for _, pattern := range remainingPatterns {
-		wantedPatterns[pattern] = struct{}{}
+	// Handle specific relative paths first (these work regardless of recursive setting)
+	for _, pattern := range specificPaths {
+		cleanPath := filepath.Clean(pattern)
+		info, err := os.Stat(cleanPath)
+		if err == nil {
+			if !info.IsDir() {
+				// Check if it's in ignore list
+				ignored := false
+				for _, ignore := range ignoreFiles {
+					if strings.HasSuffix(cleanPath, ignore) {
+						ignored = true
+						break
+					}
+				}
+				if !ignored {
+					files = append(files, cleanPath)
+					log.Debug().Str("path", cleanPath).Msg("specific path resolved")
+				}
+			}
+		}
 	}
 
-	// Walk to find basename matches and handle directories
+	// Build maps for the different pattern types
+	recursiveMap := make(map[string]struct{}, len(recursivePatterns))
+	for _, pattern := range recursivePatterns {
+		recursiveMap[pattern] = struct{}{}
+	}
+
+	basenameMap := make(map[string]struct{}, len(basenamePatterns))
+	for _, pattern := range basenamePatterns {
+		basenameMap[pattern] = struct{}{}
+	}
+
+	// Walk to find basename matches (both recursive and non-recursive)
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			log.Error().Err(walkErr).Str("path", path).Msg("error walking path")
@@ -189,17 +206,28 @@ func resolveFiles(patterns []string, recursive bool) ([]string, error) {
 			}
 		}
 
-		// Skip subdirectories if not recursive
-		if !recursive && d.IsDir() && path != "." {
-			log.Debug().Str("path", path).Msg("skipping subdirectory (non-recursive)")
+		// Skip subdirectories if we only have non-recursive patterns
+		if d.IsDir() && path != "." && len(recursiveMap) == 0 && len(basenameMap) > 0 {
+			log.Debug().Str("path", path).Msg("skipping subdirectory (non-recursive patterns only)")
 			return filepath.SkipDir
 		}
 
-		// Check for basename matches (only for files)
+		// Check for matches (only for files)
 		if !d.IsDir() {
-			if _, isWanted := wantedPatterns[filepath.Base(path)]; isWanted {
+			basename := filepath.Base(path)
+
+			// Check recursive patterns
+			if _, isRecursive := recursiveMap[basename]; isRecursive {
 				files = append(files, path)
-				log.Debug().Str("path", path).Msg("file basename matched")
+				log.Debug().Str("path", path).Str("basename", basename).Msg("recursive pattern matched")
+			}
+
+			// Check non-recursive patterns (only in current directory)
+			if path == basename || path == "./"+basename {
+				if _, isBasename := basenameMap[basename]; isBasename {
+					files = append(files, path)
+					log.Debug().Str("path", path).Str("basename", basename).Msg("non-recursive pattern matched")
+				}
 			}
 		}
 
