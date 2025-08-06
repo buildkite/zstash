@@ -21,10 +21,13 @@ var (
 	cli struct {
 		Version       kong.VersionFlag
 		Debug         bool   `help:"Enable debug mode." default:"false" env:"BUILDKITE_ZSTASH_DEBUG"`
-		RegistrySlug  string `flag:"registry-slug" help:"The registry slug to use." env:"BUILDKITE_REGISTRY_SLUG" default:"~"`
 		Endpoint      string `flag:"endpoint" help:"The endpoint to use. Defaults to the Buildkite agent API endpoint." default:"https://agent.buildkite.com/v3" env:"BUILDKITE_AGENT_API_ENDPOINT"`
 		Token         string `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
 		TraceExporter string `flag:"trace-exporter" help:"The trace exporter to use. Defaults to 'noop'." default:"noop" enum:"noop,grpc" env:"BUILDKITE_ZSTASH_TRACE_EXPORTER"`
+
+		commands.CommonFlags
+
+		Caches []commands.Cache // embedded configuration for caches
 
 		Save    commands.SaveCmd    `cmd:"" help:"save files."`
 		Restore commands.RestoreCmd `cmd:"" help:"restore files."`
@@ -41,7 +44,8 @@ func main() {
 		kong.Vars{
 			"version": version,
 		},
-		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml"),
+		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
+		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml", ".buildkite/cache.yml", ".buildkite/cache.json"),
 		kong.BindTo(ctx, (*context.Context)(nil)))
 
 	// check the token is set
@@ -61,7 +65,7 @@ func main() {
 	defer span.End()
 
 	// create a http client
-	client := api.NewClient(ctx, version, cli.Endpoint, cli.RegistrySlug, cli.Token)
+	client := api.NewClient(ctx, version, cli.Endpoint, cli.Token)
 
 	printer := console.NewPrinter(os.Stderr)
 
@@ -71,7 +75,7 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Caches: cli.Caches, Common: cli.CommonFlags})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 

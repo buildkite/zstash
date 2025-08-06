@@ -14,6 +14,7 @@ import (
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/google/go-querystring/query"
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/rs/zerolog/log"
 	otel "go.opentelemetry.io/otel/trace"
 )
@@ -40,10 +41,10 @@ func isJSONContentType(contentType string) bool {
 type Client struct {
 	client   *http.Client
 	endpoint string
-	slug     string
 }
 
 type CacheCreateReq struct {
+	Store        string   `json:"store"` // The store used for the cache entry
 	Key          string   `json:"key"`
 	FallbackKeys []string `json:"fallback_keys"`
 	Compression  string   `json:"compression"`
@@ -63,6 +64,7 @@ type CacheRetrieveReq struct {
 }
 
 type CacheRetrieveResp struct {
+	Store                string    `json:"store"`    // The store used for the cache entry
 	Key                  string    `json:"key"`      // The key of the cache entry, we MUST use this in rest of the restore process to cater for fallbacks
 	Fallback             bool      `json:"fallback"` // Indicates if this is a fallback cache entry
 	ExpiresAt            time.Time `json:"expires_at"`
@@ -84,7 +86,17 @@ type CachePeekReq struct {
 }
 
 type CachePeekResp struct {
-	Message string `json:"message"`
+	Store       string    `json:"store"` // The store used for the cache entry
+	Digest      string    `json:"digest"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Compression string    `json:"compression"`
+	Message     string    `json:"message"`
+}
+
+type CacheRegistryResp struct {
+	UUID  string `json:"uuid"`
+	Name  string `json:"name"`
+	Store string `json:"store"` // The store used for the cache registry
 }
 
 type CacheCommitReq struct {
@@ -94,10 +106,10 @@ type CacheCommitResp struct {
 	Message string `json:"message"`
 }
 
-func NewClient(ctx context.Context, version, endpoint, slug, token string) Client {
+func NewClient(ctx context.Context, version, endpoint, token string) Client {
 	client := &http.Client{}
 
-	client.Transport = roundTripperFunc(
+	client.Transport = gzhttp.Transport(roundTripperFunc(
 		func(req *http.Request) (*http.Response, error) {
 			req = req.Clone(req.Context())
 			req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
@@ -106,10 +118,10 @@ func NewClient(ctx context.Context, version, endpoint, slug, token string) Clien
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 			return http.DefaultTransport.RoundTrip(req)
-		},
+		}),
 	)
 
-	return Client{client: client, slug: slug, endpoint: endpoint}
+	return Client{client: client, endpoint: endpoint}
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -164,7 +176,36 @@ func handleCacheResponse[T MessageGetter](span otel.Span, res *http.Response, re
 	}
 }
 
-func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (CachePeekResp, bool, error) {
+func (c Client) CacheRegistry(ctx context.Context, registry string) (CacheRegistryResp, error) {
+	ctx, span := trace.Start(ctx, "Client.CacheRegistry")
+	defer span.End()
+
+	var resp CacheRegistryResp
+
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s", c.endpoint, registry))
+	if err != nil {
+		return resp, trace.NewError(span, "failed to parse url: %w", err)
+	}
+
+	res, resp, err := doRequest[any, CacheRegistryResp](ctx, c.client, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return resp, trace.NewError(span, "failed to do request: %w", err)
+	}
+
+	if res.StatusCode != http.StatusOK {
+		return resp, trace.NewError(span, "failed to get cache registry: %s", res.Status)
+	}
+
+	// Assert content type is application/json
+	contentType := res.Header.Get("Content-Type")
+	if !isJSONContentType(contentType) {
+		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
+	}
+
+	return resp, nil
+}
+
+func (c Client) CachePeekExists(ctx context.Context, registry string, create CachePeekReq) (CachePeekResp, bool, error) {
 	ctx, span := trace.Start(ctx, "Client.CachePeekExists")
 	defer span.End()
 
@@ -175,7 +216,7 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 		return resp, false, trace.NewError(span, "failed to marshal query params: %w", err)
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/peek", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/peek", c.endpoint, registry))
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -190,13 +231,13 @@ func (c Client) CachePeekExists(ctx context.Context, create CachePeekReq) (Cache
 	return handleCacheResponse(span, res, resp)
 }
 
-func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCommitResp, error) {
+func (c Client) CacheCommit(ctx context.Context, registry string, commit CacheCommitReq) (CacheCommitResp, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheCommit")
 	defer span.End()
 
 	var resp CacheCommitResp
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/commit", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/commit", c.endpoint, registry))
 	if err != nil {
 		return resp, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -214,22 +255,16 @@ func (c Client) CacheCommit(ctx context.Context, commit CacheCommitReq) (CacheCo
 		return resp, trace.NewError(span, "failed to commit: %s", res.Status)
 	}
 
-	// Assert content type is application/json
-	contentType := res.Header.Get("Content-Type")
-	if !isJSONContentType(contentType) {
-		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
-	}
-
 	return resp, nil
 }
 
-func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCreateResp, error) {
+func (c Client) CacheCreate(ctx context.Context, registry string, create CacheCreateReq) (CacheCreateResp, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheCreate")
 	defer span.End()
 
 	var resp CacheCreateResp
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/store", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/store", c.endpoint, registry))
 	if err != nil {
 		return resp, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -243,16 +278,10 @@ func (c Client) CacheCreate(ctx context.Context, create CacheCreateReq) (CacheCr
 		return resp, trace.NewError(span, "failed to save: %s", res.Status)
 	}
 
-	// Assert content type is application/json
-	contentType := res.Header.Get("Content-Type")
-	if !isJSONContentType(contentType) {
-		return resp, trace.NewError(span, "unexpected content type: %s", contentType)
-	}
-
 	return resp, nil
 }
 
-func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (CacheRetrieveResp, bool, error) {
+func (c Client) CacheRetrieve(ctx context.Context, registry string, retrieve CacheRetrieveReq) (CacheRetrieveResp, bool, error) {
 	ctx, span := trace.Start(ctx, "Client.CacheRetrieve")
 	defer span.End()
 
@@ -263,7 +292,7 @@ func (c Client) CacheRetrieve(ctx context.Context, retrieve CacheRetrieveReq) (C
 		return resp, false, trace.NewError(span, "failed to marshal query params: %w", err)
 	}
 
-	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/retrieve", c.endpoint, c.slug))
+	u, err := url.Parse(fmt.Sprintf("%s/cache_registries/%s/retrieve", c.endpoint, registry))
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to parse url: %w", err)
 	}
@@ -325,6 +354,12 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 			_ = res.Body.Close()
 		}
 	}()
+
+	// Assert content type is application/json
+	contentType := res.Header.Get("Content-Type")
+	if !isJSONContentType(contentType) {
+		return res, resp, trace.NewError(span, "unexpected content type: %s", contentType)
+	}
 
 	// read the response body
 	if err = json.NewDecoder(res.Body).Decode(&resp); err != nil {
