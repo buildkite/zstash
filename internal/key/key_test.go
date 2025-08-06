@@ -36,7 +36,7 @@ func TestTemplate(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				got, err := Template("", tt.key, false)
+				got, err := Template("", tt.key)
 				require.NoError(t, err)
 				require.Equal(t, tt.expected, got)
 			})
@@ -45,13 +45,12 @@ func TestTemplate(t *testing.T) {
 
 	t.Run("checksum templates", func(t *testing.T) {
 		tests := []struct {
-			name      string
-			id        string
-			key       string
-			recursive bool
-			setup     func() error
-			cleanup   func()
-			expected  string
+			name     string
+			id       string
+			key      string
+			setup    func() error
+			cleanup  func()
+			expected string
 		}{
 			{
 				name:     "non-existent file",
@@ -83,9 +82,8 @@ func TestTemplate(t *testing.T) {
 				expected: fmt.Sprintf("go-%s-%s-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660", runtime.GOOS, runtime.GOARCH),
 			},
 			{
-				name:      "file non-recursive (only root)",
-				key:       `go-{{checksum "go.mod"}}`,
-				recursive: false,
+				name: "file non-recursive (only root)",
+				key:  `go-{{checksum "go.mod"}}`,
 				setup: func() error {
 					if err := os.Mkdir("subdir", 0755); err != nil {
 						return err
@@ -102,9 +100,8 @@ func TestTemplate(t *testing.T) {
 				expected: "go-4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
 			},
 			{
-				name:      "file recursive (finds all)",
-				key:       `go-{{checksum "go.mod"}}`,
-				recursive: true,
+				name: "file recursive (finds all)",
+				key:  `go-{{checksum "**/go.mod"}}`,
 				setup: func() error {
 					if err := os.Mkdir("subdir", 0755); err != nil {
 						return err
@@ -121,9 +118,8 @@ func TestTemplate(t *testing.T) {
 				expected: "go-f2684b75ab846895bcc1d50f4511edeb8fcd86167a8e6e64aeee46afc1576d9c",
 			},
 			{
-				name:      "directory recursive",
-				key:       `{{checksum "testfile"}}`,
-				recursive: true,
+				name: "directory recursive",
+				key:  `{{checksum "**/testfile"}}`,
 				setup: func() error {
 					if err := os.Mkdir("testdir", 0755); err != nil {
 						return err
@@ -136,9 +132,8 @@ func TestTemplate(t *testing.T) {
 				expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
 			},
 			{
-				name:      "directory non-recursive (empty)",
-				key:       `{{checksum "testdir"}}`,
-				recursive: false,
+				name: "directory non-recursive (empty)",
+				key:  `{{checksum "testdir"}}`,
 				setup: func() error {
 					if err := os.Mkdir("testdir", 0755); err != nil {
 						return err
@@ -151,9 +146,8 @@ func TestTemplate(t *testing.T) {
 				expected: "",
 			},
 			{
-				name:      "file path non-recursive",
-				key:       `{{checksum "testdir/Dockerfile.dev"}}`,
-				recursive: false,
+				name: "file path non-recursive",
+				key:  `{{checksum "testdir/Dockerfile.dev"}}`,
 				setup: func() error {
 					if err := os.Mkdir("testdir", 0755); err != nil {
 						return err
@@ -164,6 +158,36 @@ func TestTemplate(t *testing.T) {
 					_ = os.RemoveAll("testdir")
 				},
 				expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
+			},
+			{
+				name: "glob wildcard patterns",
+				key:  `{{checksum "*.mod"}}`,
+				setup: func() error {
+					if err := os.WriteFile("go.mod", []byte("module test"), 0600); err != nil {
+						return err
+					}
+					return os.WriteFile("rust.mod", []byte("mod test"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("go.mod")
+					_ = os.Remove("rust.mod")
+				},
+				expected: "da4c35f2349831611032777269dba5b864abba9a9eabf5c0e4e5b67fb20ff52d",
+			},
+			{
+				name: "glob brace expansion",
+				key:  `{{checksum "*.{yml,yaml}"}}`,
+				setup: func() error {
+					if err := os.WriteFile("config.yml", []byte("test: value"), 0600); err != nil {
+						return err
+					}
+					return os.WriteFile("data.yaml", []byte("data: value"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("config.yml")
+					_ = os.Remove("data.yaml")
+				},
+				expected: "2ca0044d8e7c94fa42827867d58c3ff59d7dd5a6c33baf9c075b11e8d690a336",
 			},
 		}
 
@@ -190,7 +214,7 @@ func TestTemplate(t *testing.T) {
 					defer tt.cleanup()
 				}
 
-				got, err := Template(tt.id, tt.key, tt.recursive)
+				got, err := Template(tt.id, tt.key)
 				assert.NoError(err)
 				assert.Equal(tt.expected, got)
 			})

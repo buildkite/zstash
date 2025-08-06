@@ -4,11 +4,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
+	"drjosh.dev/zzglob"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,10 +27,10 @@ var ignoreFiles = []string{
 	".keep",
 }
 
-func Template(id, key string, recursive bool) (string, error) {
+func Template(id, key string) (string, error) {
 	tpl := template.New("key").Option("missingkey=zero").Funcs(template.FuncMap{
 		"id":       getID(id),
-		"checksum": checksumPaths(recursive),
+		"checksum": checksumPaths(),
 		"env":      getEnv,
 		"agent":    getAgent,
 	})
@@ -83,156 +86,110 @@ func getEnv(key string) string {
 	return env
 }
 
-func checksumPaths(recursive bool) func(files ...string) string {
-	return func(files ...string) string {
-		log.Info().Strs("files", files).Msg("checksumPaths")
+func checksumPaths() func(files ...string) string {
+	return func(patterns ...string) string {
+		log.Info().Strs("files", patterns).Msg("checksumPaths")
 
-		if len(files) == 0 {
+		if len(patterns) == 0 {
 			return ""
 		}
 
-		sums := []string{}
-
-		for _, filename := range files {
-
-			log.Debug().Str("file", filename).Msg("checksumPaths file")
-
-			// recursively find any files or directories which match the file
-			matchedFiles, matchedDirs, err := matchFilesAndDirs(filename, recursive)
-			if err != nil {
-				log.Error().Err(err).Str("file", filename).Msg("error matching files and directories")
-				return ""
-			}
-
-			log.Info().Int("dirs", len(matchedDirs)).Int("filenames", len(matchedFiles)).Msg("found files and directories")
-
-			if len(matchedFiles) == 0 && len(matchedDirs) == 0 {
-				log.Warn().Str("file", filename).Msg("no files or directories found")
-				return ""
-			}
-
-			for _, file := range matchedFiles {
-				// if the file is a regular file, we can read it and get the checksum
-				data, err := os.ReadFile(file)
-				if err != nil {
-					log.Error().Err(err).Str("file", file).Msg("error reading file")
-					return ""
-				}
-				sums = append(sums, checksum(data))
-				log.Debug().Str("file", file).Msg("checksum file")
-			}
-
-			for _, dir := range matchedDirs {
-				// if the file is a directory, we need to walk the directory and get the checksums of all files in the directory
-				log.Debug().Str("dir", dir).Msg("walking directory")
-				err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-					if err != nil {
-						log.Error().Err(err).Str("path", path).Msg("error walking directory")
-						return err
-					}
-					log.Debug().Str("path", path).Msg("walking path in directory")
-					if info.IsDir() {
-						log.Debug().Str("path", path).Msg("skipping directory")
-						return nil
-					}
-					// read the file and get the checksum
-					data, err := os.ReadFile(path)
-					if err != nil {
-						log.Error().Err(err).Str("file", path).Msg("error reading file in directory")
-						return err
-					}
-					sums = append(sums, checksum(data))
-					log.Debug().Str("file", path).Msg("read file in directory")
-					return nil
-				})
-				if err != nil {
-					log.Error().Err(err).Str("dir", dir).Msg("error walking directory")
-					return ""
-				}
-			}
+		// Resolve all patterns to actual file paths
+		files, err := resolveFiles(patterns)
+		if err != nil {
+			log.Error().Err(err).Msg("error resolving files")
+			return ""
 		}
 
-		log.Debug().Int("files", len(sums)).Msg("checksums calculated")
+		if len(files) == 0 {
+			log.Warn().Strs("patterns", patterns).Msg("no files found for patterns")
+			return ""
+		}
 
-		// combine the sums into a single string
+		log.Info().Int("files", len(files)).Msg("resolved files for checksumming")
+
+		// Calculate individual checksums and combine (for backward compatibility)
+		var sums []string
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				log.Error().Err(err).Str("file", file).Msg("error reading file")
+				return ""
+			}
+			sums = append(sums, checksum(data))
+			log.Debug().Str("file", file).Msg("checksummed file")
+		}
+
+		// Combine the sums into a single string and hash (matches original behavior)
 		combinedSums := strings.Join(sums, "")
-
-		// use sha256 to get the checksum of the combined hashes
 		return checksum([]byte(combinedSums))
 	}
 }
 
-func matchFilesAndDirs(filename string, recursive bool) ([]string, []string, error) {
-	matchedDirs := []string{}
-	matchedFiles := []string{}
+// resolveFiles returns all files that match any of the supplied glob patterns.
+// Uses zzglob for full glob pattern support including **, *, ?, [], {a,b}.
+// Maintains backward compatibility with existing patterns while adding standard glob capabilities.
+func resolveFiles(patterns []string) ([]string, error) {
+	seen := make(map[string]struct{})
+	var result []string
 
-	// Check if the filename is a specific relative path (contains directory separators)
-	if filepath.Dir(filename) != "." {
-		// Handle as a specific relative path
-		cleanPath := filepath.Clean(filename)
-		info, err := os.Stat(cleanPath)
+	for _, patternStr := range patterns {
+		log.Debug().Str("pattern", patternStr).Msg("processing glob pattern")
+
+		// Parse the pattern using zzglob
+		pattern, err := zzglob.Parse(patternStr)
 		if err != nil {
-			log.Debug().Err(err).Str("path", cleanPath).Msg("specific path not found")
-			return matchedFiles, matchedDirs, nil
+			log.Error().Err(err).Str("pattern", patternStr).Msg("glob pattern parse failed")
+			return nil, err
 		}
 
-		if info.IsDir() {
-			matchedDirs = append(matchedDirs, cleanPath)
-		} else {
-			matchedFiles = append(matchedFiles, cleanPath)
-		}
-		return matchedFiles, matchedDirs, nil
-	}
-
-	// Original logic for matching by basename
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Error().Err(err).Str("path", path).Msg("error walking path")
-			return err
-		}
-
-		log.Debug().Str("path", path).Msg("walking path")
-
-		// skip subdirectories if not recursive
-		if !recursive && info.IsDir() && path != "." {
-			log.Debug().Str("path", path).Msg("skipping subdirectory (non-recursive)")
-			return filepath.SkipDir
-		}
-
-		// skip if the file is in the ignore list
-		for _, ignore := range ignoreFiles {
-			if strings.HasSuffix(path, ignore) {
-
-				if info.IsDir() {
-					log.Debug().Str("path", path).Msg("ignoring directory")
-					return filepath.SkipDir // Skip the directory if it matches an ignore file
-				}
-
-				log.Debug().Str("path", path).Msg("ignoring file")
-				return nil // Skip the file if it matches an ignore file
+		// Use zzglob to find all matches for this pattern
+		err = pattern.Glob(func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // Skip errors, continue walking
 			}
-		}
 
-		// does the file match the file?
-		if filepath.Base(path) != filename {
+			// Only include files, not directories
+			if d.IsDir() {
+				return nil
+			}
+
+			// Convert to platform-specific path separators
+			match := filepath.FromSlash(path)
+
+			// Apply ignore list
+			ignored := false
+			for _, ignore := range ignoreFiles {
+				if strings.HasSuffix(match, ignore) {
+					ignored = true
+					log.Debug().Str("path", match).Str("ignore", ignore).Msg("ignoring file")
+					break
+				}
+			}
+
+			if !ignored {
+				// Deduplicate
+				if _, exists := seen[match]; !exists {
+					seen[match] = struct{}{}
+					result = append(result, match)
+					log.Debug().Str("path", match).Str("pattern", patternStr).Msg("file matched")
+				}
+			}
+
 			return nil
+		})
+
+		if err != nil {
+			log.Error().Err(err).Str("pattern", patternStr).Msg("glob pattern failed")
+			return nil, err
 		}
-
-		if info.IsDir() {
-			matchedDirs = append(matchedDirs, path)
-			return nil
-		}
-
-		matchedFiles = append(matchedFiles, path)
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, nil, err
 	}
 
-	return matchedFiles, matchedDirs, err
+	// Sort for deterministic output
+	sort.Strings(result)
+	log.Debug().Int("count", len(result)).Msg("files resolved")
+
+	return result, nil
 }
 
 func checksum(data []byte) string {

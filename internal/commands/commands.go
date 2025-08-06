@@ -51,7 +51,7 @@ func restoreKeys(id string, restoreKeyTemplates []string) ([]string, error) {
 
 		log.Debug().Str("restore_key_template", restoreKeyTemplate).Msg("templating restore key")
 
-		restoreKey, err := key.Template(id, restoreKeyTemplate, false)
+		restoreKey, err := key.Template(id, restoreKeyTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("failed to template restore key: %w", err)
 		}

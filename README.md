@@ -56,6 +56,44 @@ Flags:
       --id=ID,...                                    List of comma delimited cache IDs to save, defaults to all ($BUILDKITE_CACHE_IDS).
 ```
 
+# Cache Key Pattern Matching
+
+zstash supports full glob pattern matching for cache keys using the [doublestar](https://github.com/bmatcuk/doublestar) library:
+
+## Pattern Types
+
+- **`package-lock.json`** - Exact filename in current directory only
+- **`lib/package-lock.json`** - Specific path relative to current directory  
+- **`**/pom.xml`** - Recursive search, finds `pom.xml` files in any subdirectory
+- **`*.go`** - All Go files in current directory (wildcard)
+- **`src/**/*.{js,ts}`** - All JS/TS files under src/ (recursive + brace expansion)
+- **`**/*.{yml,yaml}`** - All YAML files anywhere (recursive + brace expansion)
+
+## Examples
+
+```yaml
+# Exact filename in current directory only
+key: "{{ checksum "go.mod" }}"
+
+# Specific path - matches exact file location  
+key: "{{ checksum "backend/go.mod" }}"
+
+# Recursive - finds go.mod in any subdirectory
+key: "{{ checksum "**/go.mod" }}"
+
+# Wildcard - all Go files in current directory
+key: "{{ checksum "*.go" }}"
+
+# Recursive with wildcards - all TypeScript files under src/
+key: "{{ checksum "src/**/*.ts" }}"
+
+# Brace expansion - all YAML files anywhere
+key: "{{ checksum "**/*.{yml,yaml}" }}"
+
+# Multiple patterns with different types
+key: "{{ checksum "package.json" "**/yarn.lock" "src/**/*.{js,ts}" }}"
+```
+
 # Verification
 
 To verify the cache and restore worked you can use diff.
