@@ -69,32 +69,6 @@ zstash supports full glob pattern matching for cache keys using the [doublestar]
 - **`src/**/*.{js,ts}`** - All JS/TS files under src/ (recursive + brace expansion)
 - **`**/*.{yml,yaml}`** - All YAML files anywhere (recursive + brace expansion)
 
-## How Pattern Matching Works
-
-```mermaid
-flowchart TD
-    A[Pattern Input] --> B{Pattern Type?}
-    
-    B -->|Starts with '**/'| C[Recursive Pattern<br/>Strip '**/' prefix]
-    B -->|Contains '/'| D[Specific Path<br/>Direct file check]
-    B -->|Basename only| E[Non-recursive Pattern<br/>Current directory only]
-    
-    C --> F[Walk all directories<br/>Match basename everywhere]
-    D --> G[Check exact path<br/>No directory walking]
-    E --> H[Walk current directory only<br/>Skip subdirectories]
-    
-    F --> I[Collect matching files]
-    G --> I
-    H --> I
-    
-    I --> J[Sort files for<br/>deterministic output]
-    J --> K[Calculate checksums<br/>and combine]
-    
-    style C fill:#e1f5fe,stroke:#01579b,color:#000
-    style D fill:#f3e5f5,stroke:#4a148c,color:#000
-    style E fill:#e8f5e8,stroke:#1b5e20,color:#000
-```
-
 ## Examples
 
 ```yaml

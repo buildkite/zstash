@@ -4,13 +4,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
-	"github.com/bmatcuk/doublestar/v4"
+	"drjosh.dev/zzglob"
 	"github.com/rs/zerolog/log"
 )
 
@@ -126,31 +127,35 @@ func checksumPaths() func(files ...string) string {
 }
 
 // resolveFiles returns all files that match any of the supplied glob patterns.
-// Uses doublestar for full glob pattern support including **, *, ?, [], {a,b}.
+// Uses zzglob for full glob pattern support including **, *, ?, [], {a,b}.
 // Maintains backward compatibility with existing patterns while adding standard glob capabilities.
 func resolveFiles(patterns []string) ([]string, error) {
 	seen := make(map[string]struct{})
 	var result []string
 
-	for _, pattern := range patterns {
-		log.Debug().Str("pattern", pattern).Msg("processing glob pattern")
+	for _, patternStr := range patterns {
+		log.Debug().Str("pattern", patternStr).Msg("processing glob pattern")
 
-		// Use doublestar to find all matches for this pattern
-		matches, err := doublestar.Glob(os.DirFS("."), pattern)
+		// Parse the pattern using zzglob
+		pattern, err := zzglob.Parse(patternStr)
 		if err != nil {
-			log.Error().Err(err).Str("pattern", pattern).Msg("glob pattern failed")
+			log.Error().Err(err).Str("pattern", patternStr).Msg("glob pattern parse failed")
 			return nil, err
 		}
 
-		for _, match := range matches {
-			// Convert to platform-specific path separators
-			match = filepath.FromSlash(match)
+		// Use zzglob to find all matches for this pattern
+		err = pattern.Glob(func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // Skip errors, continue walking
+			}
 
 			// Only include files, not directories
-			info, err := os.Stat(match)
-			if err != nil || info.IsDir() {
-				continue
+			if d.IsDir() {
+				return nil
 			}
+
+			// Convert to platform-specific path separators
+			match := filepath.FromSlash(path)
 
 			// Apply ignore list
 			ignored := false
@@ -167,9 +172,16 @@ func resolveFiles(patterns []string) ([]string, error) {
 				if _, exists := seen[match]; !exists {
 					seen[match] = struct{}{}
 					result = append(result, match)
-					log.Debug().Str("path", match).Str("pattern", pattern).Msg("file matched")
+					log.Debug().Str("path", match).Str("pattern", patternStr).Msg("file matched")
 				}
 			}
+
+			return nil
+		})
+
+		if err != nil {
+			log.Error().Err(err).Str("pattern", patternStr).Msg("glob pattern failed")
+			return nil, err
 		}
 	}
 
