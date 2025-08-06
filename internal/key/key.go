@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -84,155 +86,135 @@ func getEnv(key string) string {
 }
 
 func checksumPaths(recursive bool) func(files ...string) string {
-	return func(files ...string) string {
-		log.Info().Strs("files", files).Msg("checksumPaths")
+	return func(patterns ...string) string {
+		log.Info().Strs("files", patterns).Msg("checksumPaths")
 
-		if len(files) == 0 {
+		if len(patterns) == 0 {
 			return ""
 		}
 
-		sums := []string{}
-
-		for _, filename := range files {
-
-			log.Debug().Str("file", filename).Msg("checksumPaths file")
-
-			// recursively find any files or directories which match the file
-			matchedFiles, matchedDirs, err := matchFilesAndDirs(filename, recursive)
-			if err != nil {
-				log.Error().Err(err).Str("file", filename).Msg("error matching files and directories")
-				return ""
-			}
-
-			log.Info().Int("dirs", len(matchedDirs)).Int("filenames", len(matchedFiles)).Msg("found files and directories")
-
-			if len(matchedFiles) == 0 && len(matchedDirs) == 0 {
-				log.Warn().Str("file", filename).Msg("no files or directories found")
-				return ""
-			}
-
-			for _, file := range matchedFiles {
-				// if the file is a regular file, we can read it and get the checksum
-				data, err := os.ReadFile(file)
-				if err != nil {
-					log.Error().Err(err).Str("file", file).Msg("error reading file")
-					return ""
-				}
-				sums = append(sums, checksum(data))
-				log.Debug().Str("file", file).Msg("checksum file")
-			}
-
-			for _, dir := range matchedDirs {
-				// if the file is a directory, we need to walk the directory and get the checksums of all files in the directory
-				log.Debug().Str("dir", dir).Msg("walking directory")
-				err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-					if err != nil {
-						log.Error().Err(err).Str("path", path).Msg("error walking directory")
-						return err
-					}
-					log.Debug().Str("path", path).Msg("walking path in directory")
-					if info.IsDir() {
-						log.Debug().Str("path", path).Msg("skipping directory")
-						return nil
-					}
-					// read the file and get the checksum
-					data, err := os.ReadFile(path)
-					if err != nil {
-						log.Error().Err(err).Str("file", path).Msg("error reading file in directory")
-						return err
-					}
-					sums = append(sums, checksum(data))
-					log.Debug().Str("file", path).Msg("read file in directory")
-					return nil
-				})
-				if err != nil {
-					log.Error().Err(err).Str("dir", dir).Msg("error walking directory")
-					return ""
-				}
-			}
+		// Resolve all patterns to actual file paths
+		files, err := resolveFiles(patterns, recursive)
+		if err != nil {
+			log.Error().Err(err).Msg("error resolving files")
+			return ""
 		}
 
-		log.Debug().Int("files", len(sums)).Msg("checksums calculated")
+		if len(files) == 0 {
+			log.Warn().Strs("patterns", patterns).Msg("no files found for patterns")
+			return ""
+		}
 
-		// combine the sums into a single string
+		log.Info().Int("files", len(files)).Msg("resolved files for checksumming")
+
+		// Calculate individual checksums and combine (for backward compatibility)
+		var sums []string
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err != nil {
+				log.Error().Err(err).Str("file", file).Msg("error reading file")
+				return ""
+			}
+			sums = append(sums, checksum(data))
+			log.Debug().Str("file", file).Msg("checksummed file")
+		}
+
+		// Combine the sums into a single string and hash (matches original behavior)
 		combinedSums := strings.Join(sums, "")
-
-		// use sha256 to get the checksum of the combined hashes
 		return checksum([]byte(combinedSums))
 	}
 }
 
-func matchFilesAndDirs(filename string, recursive bool) ([]string, []string, error) {
-	matchedDirs := []string{}
-	matchedFiles := []string{}
-
-	// Check if the filename is a specific relative path (contains directory separators)
-	if filepath.Dir(filename) != "." {
-		// Handle as a specific relative path
-		cleanPath := filepath.Clean(filename)
-		info, err := os.Stat(cleanPath)
-		if err != nil {
-			log.Debug().Err(err).Str("path", cleanPath).Msg("specific path not found")
-			return matchedFiles, matchedDirs, nil
-		}
-
-		if info.IsDir() {
-			matchedDirs = append(matchedDirs, cleanPath)
+// resolveFiles returns a sorted list of file paths that match the given patterns.
+// Directories are expanded to include all their files. The ignore list and recursive
+// settings are consistently applied throughout the resolution process.
+func resolveFiles(patterns []string, recursive bool) ([]string, error) {
+	var files []string
+	
+	// First handle specific relative paths (contain directory separators)
+	// These should work even in non-recursive mode
+	remainingPatterns := []string{}
+	for _, pattern := range patterns {
+		if filepath.Dir(pattern) != "." {
+			// Specific relative path - check if it exists directly
+			cleanPath := filepath.Clean(pattern)
+			info, err := os.Stat(cleanPath)
+			if err == nil {
+				if !info.IsDir() {
+					// Check if it's in ignore list
+					ignored := false
+					for _, ignore := range ignoreFiles {
+						if strings.HasSuffix(cleanPath, ignore) {
+							ignored = true
+							break
+						}
+					}
+					if !ignored {
+						files = append(files, cleanPath)
+						log.Debug().Str("path", cleanPath).Msg("specific path resolved")
+					}
+				}
+				// If it's a directory, we'll handle it in the walk below
+			}
 		} else {
-			matchedFiles = append(matchedFiles, cleanPath)
+			// Basename pattern - handle in walk
+			remainingPatterns = append(remainingPatterns, pattern)
 		}
-		return matchedFiles, matchedDirs, nil
 	}
 
-	// Original logic for matching by basename
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			log.Error().Err(err).Str("path", path).Msg("error walking path")
-			return err
+	// Build a map of remaining patterns for walk
+	wantedPatterns := make(map[string]struct{}, len(remainingPatterns))
+	for _, pattern := range remainingPatterns {
+		wantedPatterns[pattern] = struct{}{}
+	}
+
+	// Walk to find basename matches and handle directories
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			log.Error().Err(walkErr).Str("path", path).Msg("error walking path")
+			return walkErr
 		}
 
 		log.Debug().Str("path", path).Msg("walking path")
 
-		// skip subdirectories if not recursive
-		if !recursive && info.IsDir() && path != "." {
+		// Apply ignore list to both files and directories
+		for _, ignore := range ignoreFiles {
+			if strings.HasSuffix(path, ignore) {
+				if d.IsDir() {
+					log.Debug().Str("path", path).Str("ignore", ignore).Msg("ignoring directory")
+					return filepath.SkipDir
+				}
+				log.Debug().Str("path", path).Str("ignore", ignore).Msg("ignoring file")
+				return nil
+			}
+		}
+
+		// Skip subdirectories if not recursive
+		if !recursive && d.IsDir() && path != "." {
 			log.Debug().Str("path", path).Msg("skipping subdirectory (non-recursive)")
 			return filepath.SkipDir
 		}
 
-		// skip if the file is in the ignore list
-		for _, ignore := range ignoreFiles {
-			if strings.HasSuffix(path, ignore) {
-
-				if info.IsDir() {
-					log.Debug().Str("path", path).Msg("ignoring directory")
-					return filepath.SkipDir // Skip the directory if it matches an ignore file
-				}
-
-				log.Debug().Str("path", path).Msg("ignoring file")
-				return nil // Skip the file if it matches an ignore file
+		// Check for basename matches (only for files)
+		if !d.IsDir() {
+			if _, isWanted := wantedPatterns[filepath.Base(path)]; isWanted {
+				files = append(files, path)
+				log.Debug().Str("path", path).Msg("file basename matched")
 			}
 		}
-
-		// does the file match the file?
-		if filepath.Base(path) != filename {
-			return nil
-		}
-
-		if info.IsDir() {
-			matchedDirs = append(matchedDirs, path)
-			return nil
-		}
-
-		matchedFiles = append(matchedFiles, path)
 
 		return nil
 	})
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return matchedFiles, matchedDirs, err
+	// Sort for deterministic output
+	sort.Strings(files)
+	log.Debug().Int("count", len(files)).Msg("files resolved")
+
+	return files, nil
 }
 
 func checksum(data []byte) string {
