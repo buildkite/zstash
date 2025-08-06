@@ -159,6 +159,36 @@ func TestTemplate(t *testing.T) {
 				},
 				expected: "4b9054a7a40e53c2e310fcd6f696c46c6a40dcdfa5b849785a456756ec512660",
 			},
+			{
+				name: "glob wildcard patterns",
+				key:  `{{checksum "*.mod"}}`,
+				setup: func() error {
+					if err := os.WriteFile("go.mod", []byte("module test"), 0600); err != nil {
+						return err
+					}
+					return os.WriteFile("rust.mod", []byte("mod test"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("go.mod")
+					_ = os.Remove("rust.mod")
+				},
+				expected: "da4c35f2349831611032777269dba5b864abba9a9eabf5c0e4e5b67fb20ff52d",
+			},
+			{
+				name: "glob brace expansion",
+				key:  `{{checksum "*.{yml,yaml}"}}`,
+				setup: func() error {
+					if err := os.WriteFile("config.yml", []byte("test: value"), 0600); err != nil {
+						return err
+					}
+					return os.WriteFile("data.yaml", []byte("data: value"), 0600)
+				},
+				cleanup: func() {
+					_ = os.Remove("config.yml")
+					_ = os.Remove("data.yaml")
+				},
+				expected: "2ca0044d8e7c94fa42827867d58c3ff59d7dd5a6c33baf9c075b11e8d690a336",
+			},
 		}
 
 		for _, tt := range tests {

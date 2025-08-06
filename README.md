@@ -58,13 +58,16 @@ Flags:
 
 # Cache Key Pattern Matching
 
-zstash supports flexible pattern matching for cache keys with different levels of recursion:
+zstash supports full glob pattern matching for cache keys using the [doublestar](https://github.com/bmatcuk/doublestar) library:
 
 ## Pattern Types
 
-- **`package-lock.json`** - Non-recursive, matches files only in the current directory
-- **`lib/package-lock.json`** - Specific path, matches the exact file relative to current directory  
+- **`package-lock.json`** - Exact filename in current directory only
+- **`lib/package-lock.json`** - Specific path relative to current directory  
 - **`**/pom.xml`** - Recursive search, finds `pom.xml` files in any subdirectory
+- **`*.go`** - All Go files in current directory (wildcard)
+- **`src/**/*.{js,ts}`** - All JS/TS files under src/ (recursive + brace expansion)
+- **`**/*.{yml,yaml}`** - All YAML files anywhere (recursive + brace expansion)
 
 ## How Pattern Matching Works
 
@@ -95,7 +98,7 @@ flowchart TD
 ## Examples
 
 ```yaml
-# Non-recursive - only matches go.mod in current directory
+# Exact filename in current directory only
 key: "{{ checksum "go.mod" }}"
 
 # Specific path - matches exact file location  
@@ -104,8 +107,17 @@ key: "{{ checksum "backend/go.mod" }}"
 # Recursive - finds go.mod in any subdirectory
 key: "{{ checksum "**/go.mod" }}"
 
-# Multiple patterns
-key: "{{ checksum "package.json" "**/yarn.lock" }}"
+# Wildcard - all Go files in current directory
+key: "{{ checksum "*.go" }}"
+
+# Recursive with wildcards - all TypeScript files under src/
+key: "{{ checksum "src/**/*.ts" }}"
+
+# Brace expansion - all YAML files anywhere
+key: "{{ checksum "**/*.{yml,yaml}" }}"
+
+# Multiple patterns with different types
+key: "{{ checksum "package.json" "**/yarn.lock" "src/**/*.{js,ts}" }}"
 ```
 
 # Verification
