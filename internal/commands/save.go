@@ -11,8 +11,8 @@ import (
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/cache"
+	"github.com/buildkite/zstash/internal/configuration"
 	"github.com/buildkite/zstash/internal/console"
-	"github.com/buildkite/zstash/internal/key"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/charmbracelet/lipgloss"
@@ -32,7 +32,13 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	log.Info().Str("version", globals.Version).Msg("Running SaveCmd")
 
-	for _, cache := range globals.Caches {
+	// Augment `cli.Caches` with template values.
+	caches, err := configuration.ExpandCacheConfiguration(globals.Caches)
+	if err != nil {
+		return fmt.Errorf("failed to load cache configuration: %w", err)
+	}
+
+	for _, cache := range caches {
 		if len(cmd.Ids) > 0 && !slices.Contains(cmd.Ids, cache.ID) {
 			log.Debug().Str("id", cache.ID).Msg("Skipping cache save for ID")
 			continue
@@ -177,14 +183,15 @@ type uploadResult struct {
 }
 
 func (cmd *SaveCmd) validateAndPrepare(cache cache.Cache) (*saveData, error) {
+	_, err := checkPathsExist(cache.Paths)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check paths exist: %w", err)
 	}
 
 	return &saveData{
-		paths:        paths,
-		cacheKey:     cacheKey,
-		fallbackKeys: fallbackKeys,
+		paths:        cache.Paths,
+		cacheKey:     cache.Key,
+		fallbackKeys: cache.FallbackKeys,
 	}, nil
 }
 

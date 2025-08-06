@@ -7,6 +7,8 @@ import (
 )
 
 type Cache struct {
+	// Template of the cache entry.
+	Template string
 	// The registry to use which defaults to "~".
 	Registry string
 	// ID of the cache entry to save.

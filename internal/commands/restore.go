@@ -12,7 +12,7 @@ import (
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/cache"
-	"github.com/buildkite/zstash/internal/key"
+	"github.com/buildkite/zstash/internal/configuration"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/charmbracelet/lipgloss"
@@ -38,7 +38,13 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 
 	log.Info().Str("version", globals.Version).Msg("Running RestoreCmd")
 
-	for _, cache := range globals.Caches {
+	// Augment `cli.Caches` with template values.
+	caches, err := configuration.ExpandCacheConfiguration(globals.Caches)
+	if err != nil {
+		return fmt.Errorf("failed to load cache configuration: %w", err)
+	}
+
+	for _, cache := range caches {
 		if len(cmd.Ids) > 0 && !slices.Contains(cmd.Ids, cache.ID) {
 			log.Debug().Str("id", cache.ID).Msg("Skipping cache restore for ID")
 			continue
@@ -170,26 +176,11 @@ type extractionResult struct {
 	paths       []string
 }
 
-func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span, cache Cache) (*restoreData, error) {
-	paths, err := checkPath(cache.Paths)
-	if err != nil {
-		return nil, trace.NewError(span, "failed to check paths: %w", err)
-	}
-
-	cacheKey, err := key.Template(cache.ID, cache.Key)
-	if err != nil {
-		return nil, trace.NewError(span, "failed to template key: %w", err)
-	}
-
-	fallbackCacheKeys, err := restoreKeys(cache.ID, cache.FallbackKeys)
-	if err != nil {
-		return nil, trace.NewError(span, "failed to restore keys: %w", err)
-	}
-
+func (cmd *RestoreCmd) validateAndPrepare(ctx context.Context, span oteltrace.Span, cache cache.Cache) (*restoreData, error) {
 	return &restoreData{
-		paths:             paths,
-		cacheKey:          cacheKey,
-		fallbackCacheKeys: fallbackCacheKeys,
+		paths:             cache.Paths,
+		cacheKey:          cache.Key,
+		fallbackCacheKeys: cache.FallbackKeys,
 	}, nil
 }
 
