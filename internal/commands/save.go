@@ -22,7 +22,7 @@ import (
 )
 
 type SaveCmd struct {
-	ID []string `flag:"id" help:"List of comma delimited cache IDs to save, defaults to all." env:"BUILDKITE_CACHE_IDS"`
+	Ids []string `flag:"ids" help:"List of comma delimited cache IDs to save, defaults to all." env:"BUILDKITE_CACHE_IDS"`
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
@@ -32,7 +32,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	log.Info().Str("version", globals.Version).Msg("Running SaveCmd")
 
 	for _, cache := range globals.Caches {
-		if len(cmd.ID) > 0 && !slices.Contains(cmd.ID, cache.ID) {
+		if len(cmd.Ids) > 0 && !slices.Contains(cmd.Ids, cache.ID) {
 			log.Debug().Str("id", cache.ID).Msg("Skipping cache save for ID")
 			continue
 		}
