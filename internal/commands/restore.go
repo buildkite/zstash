@@ -11,6 +11,7 @@ import (
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
+	"github.com/buildkite/zstash/internal/cache"
 	"github.com/buildkite/zstash/internal/key"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
@@ -55,7 +56,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func (cmd *RestoreCmd) restoreCache(ctx context.Context, cache Cache, globals *Globals) error {
+func (cmd *RestoreCmd) restoreCache(ctx context.Context, cache cache.Cache, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "restoreCache")
 	defer span.End()
 

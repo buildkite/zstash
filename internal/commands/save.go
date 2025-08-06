@@ -10,6 +10,7 @@ import (
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
+	"github.com/buildkite/zstash/internal/cache"
 	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/key"
 	"github.com/buildkite/zstash/internal/store"
@@ -49,7 +50,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, globals *Globals) error {
+func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "saveCache")
 	defer span.End()
 
@@ -110,13 +111,13 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, globals *Globals
 
 	globals.Printer.Info("📦", "Creating new cache entry for key: %s store: %s", data.cacheKey, cacheRegistryResp.Store)
 
-	// Phase 3: Build archive
+	// Phase 2: Build archive
 	archiveResult, err := cmd.buildArchive(ctx, data, globals.Printer)
 	if err != nil {
 		return err
 	}
 
-	// Phase 4: Register cache entry
+	// Phase 3: Register cache entry
 	registrationResult, err := cmd.registerCacheEntry(ctx, data, archiveResult, globals.Client, globals.Common, cache.Registry, cacheRegistryResp.Store)
 	if err != nil {
 		return err
@@ -124,20 +125,20 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache Cache, globals *Globals
 
 	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", registrationResult.uploadID)
 
-	// Phase 5: Upload archive
+	// Phase 4: Upload archive
 	uploadResult, err := cmd.uploadArchive(ctx, data.cacheKey, cacheRegistryResp.Store, archiveResult, globals.Printer, globals.Common)
 	if err != nil {
 		return err
 	}
 
-	// Phase 6: Commit cache
+	// Phase 5: Commit cache
 	if err := cmd.commitCache(ctx, globals.Client, cache.Registry, registrationResult.uploadID); err != nil {
 		return err
 	}
 
 	globals.Printer.Success("🎉", "Cache committed successfully")
 
-	// Phase 7: Print summary
+	// Phase 6: Print summary
 	t := table.New().
 		Border(lipgloss.NormalBorder()).
 		Row("Key", data.cacheKey).
@@ -175,23 +176,7 @@ type uploadResult struct {
 	transferInfo *store.TransferInfo
 }
 
-func (cmd *SaveCmd) validateAndPrepare(cache Cache) (*saveData, error) {
-	paths, err := checkPath(cache.Paths)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check paths: %w", err)
-	}
-
-	cacheKey, err := key.Template(cache.ID, cache.Key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to template key: %w", err)
-	}
-
-	fallbackKeys, err := restoreKeys(cache.ID, cache.FallbackKeys)
-	if err != nil {
-		return nil, fmt.Errorf("failed to restore keys: %w", err)
-	}
-
-	_, err = checkPathsExist(paths)
+func (cmd *SaveCmd) validateAndPrepare(cache cache.Cache) (*saveData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to check paths exist: %w", err)
 	}
