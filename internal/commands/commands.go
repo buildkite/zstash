@@ -1,15 +1,12 @@
 package commands
 
 import (
-	"fmt"
 	"math"
-	"strings"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
+	"github.com/buildkite/zstash/internal/cache"
 	"github.com/buildkite/zstash/internal/console"
-	"github.com/buildkite/zstash/internal/key"
-	"github.com/rs/zerolog/log"
 )
 
 type CommonFlags struct {
@@ -25,43 +22,8 @@ type Globals struct {
 	Version string
 	Client  api.Client
 	Printer *console.Printer
-	Caches  []Cache
+	Caches  []cache.Cache
 	Common  CommonFlags
-}
-
-// checkPath validates the provided path and returns a list of paths.
-func checkPath(paths []string) ([]string, error) {
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("no paths provided")
-	}
-
-	return paths, nil
-}
-
-// restoreKeys generates a list of restore keys from the provided ID and restore key list.
-func restoreKeys(id string, restoreKeyTemplates []string) ([]string, error) {
-	restoreKeys := make([]string, len(restoreKeyTemplates))
-
-	log.Debug().Str("id", id).Strs("restore_keys", restoreKeyTemplates).Msg("templating restore keys")
-
-	for n, restoreKeyTemplate := range restoreKeyTemplates {
-
-		// trim quotes and whitespace
-		restoreKeyTemplate = strings.Trim(restoreKeyTemplate, "\"' \t")
-
-		log.Debug().Str("restore_key_template", restoreKeyTemplate).Msg("templating restore key")
-
-		restoreKey, err := key.Template(id, restoreKeyTemplate)
-		if err != nil {
-			return nil, fmt.Errorf("failed to template restore key: %w", err)
-		}
-
-		log.Debug().Str("restore_key", restoreKey).Msg("templated restore key")
-
-		restoreKeys[n] = restoreKey
-	}
-
-	return restoreKeys, nil
 }
 
 // calculate the compression ratio

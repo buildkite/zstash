@@ -8,6 +8,7 @@ import (
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/buildkite/zstash/internal/api"
+	"github.com/buildkite/zstash/internal/cache"
 	"github.com/buildkite/zstash/internal/commands"
 	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/trace"
@@ -27,7 +28,7 @@ var (
 
 		commands.CommonFlags
 
-		Caches []commands.Cache // embedded configuration for caches
+		Caches []cache.Cache // embedded configuration for caches
 
 		Save    commands.SaveCmd    `cmd:"" help:"save files."`
 		Restore commands.RestoreCmd `cmd:"" help:"restore files."`
