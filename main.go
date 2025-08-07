@@ -17,18 +17,20 @@ import (
 )
 
 var (
-	version = "dev"
+	version           = "dev"
+	defaultConfigPath = ".buildkite/cache.yml"
 
 	cli struct {
 		Version       kong.VersionFlag
-		Debug         bool   `help:"Enable debug mode." default:"false" env:"BUILDKITE_ZSTASH_DEBUG"`
-		Endpoint      string `flag:"endpoint" help:"The endpoint to use. Defaults to the Buildkite agent API endpoint." default:"https://agent.buildkite.com/v3" env:"BUILDKITE_AGENT_API_ENDPOINT"`
-		Token         string `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
-		TraceExporter string `flag:"trace-exporter" help:"The trace exporter to use. Defaults to 'noop'." default:"noop" enum:"noop,grpc" env:"BUILDKITE_ZSTASH_TRACE_EXPORTER"`
+		Debug         bool            `help:"Enable debug mode." default:"false" env:"BUILDKITE_ZSTASH_DEBUG"`
+		Endpoint      string          `flag:"endpoint" help:"The endpoint to use. Defaults to the Buildkite agent API endpoint." default:"https://agent.buildkite.com/v3" env:"BUILDKITE_AGENT_API_ENDPOINT"`
+		Token         string          `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
+		TraceExporter string          `flag:"trace-exporter" help:"The trace exporter to use. Defaults to 'noop'." default:"noop" enum:"noop,grpc" env:"BUILDKITE_ZSTASH_TRACE_EXPORTER"`
+		Config        kong.ConfigFlag `flag:"config" help:"The path to the cache configuration file. Defaults to .buildkite/cache.yml" default:"${default_config_path}" env:"BUILDKITE_CACHE_CONFIG" `
 
 		commands.CommonFlags
 
-		Caches []cache.Cache // embedded configuration for caches
+		Caches []cache.Cache // embedded config
 
 		Save    commands.SaveCmd    `cmd:"" help:"save files."`
 		Restore commands.RestoreCmd `cmd:"" help:"restore files."`
@@ -41,12 +43,11 @@ func main() {
 
 	start := time.Now()
 
+	// Overloads `cli` with configuration file values.
 	cmd := kong.Parse(&cli,
-		kong.Vars{
-			"version": version,
-		},
+		kong.Vars{"version": version, "default_config_path": defaultConfigPath},
 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
-		kong.Configuration(kongyaml.Loader, ".buildkite/cache.yaml", ".buildkite/cache.yml", ".buildkite/cache.json"),
+		kong.Configuration(kongyaml.Loader),
 		kong.BindTo(ctx, (*context.Context)(nil)))
 
 	// check the token is set
@@ -76,7 +77,7 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Caches: cli.Caches, Common: cli.CommonFlags})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
