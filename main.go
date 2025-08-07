@@ -47,7 +47,7 @@ func main() {
 	cmd := kong.Parse(&cli,
 		kong.Vars{"version": version, "default_config_path": defaultConfigPath},
 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
-		kong.Configuration(kongyaml.Loader, defaultConfigPath),
+		kong.Configuration(kongyaml.Loader),
 		kong.BindTo(ctx, (*context.Context)(nil)))
 
 	// check the token is set
