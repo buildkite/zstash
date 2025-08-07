@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -50,8 +49,6 @@ func main() {
 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
 		kong.Configuration(kongyaml.Loader, defaultConfigPath),
 		kong.BindTo(ctx, (*context.Context)(nil)))
-
-	fmt.Printf("Using config file: %s\n", cli.Config)
 
 	// check the token is set
 	if cli.Token == "" {
