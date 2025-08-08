@@ -64,17 +64,20 @@ type CacheRetrieveReq struct {
 }
 
 type CacheRetrieveResp struct {
-	Store                string    `json:"store"`    // The store used for the cache entry
-	Key                  string    `json:"key"`      // The key of the cache entry, we MUST use this in rest of the restore process to cater for fallbacks
-	Fallback             bool      `json:"fallback"` // Indicates if this is a fallback cache entry
+	Store                string    `json:"store"`             // The store used for the cache entry
+	Key                  string    `json:"key"`               // The key of the cache entry, we MUST use this in rest of the restore process to cater for fallbacks
+	Fallback             bool      `json:"fallback"`          // Indicates if this is a fallback cache entry
+	StoreObjectName      string    `json:"store_object_name"` // the identifier used to read the key in blob storage
 	ExpiresAt            time.Time `json:"expires_at"`
+	CompressionType      string    `json:"compression_type"`
 	Multipart            bool      `json:"multipart"`
 	DownloadInstructions []string  `json:"download_instructions"`
 	Message              string    `json:"message"`
 }
 
 type CacheCreateResp struct {
-	UploadID           string   `json:"upload_id"`
+	UploadID           string   `json:"upload_id"` // the identifier used to write the key in blob storage
+	StoreObjectName    string   `json:"store_object_name"`
 	Multipart          bool     `json:"multipart"`
 	UploadInstructions []string `json:"upload_instructions"`
 	Message            string   `json:"message"`

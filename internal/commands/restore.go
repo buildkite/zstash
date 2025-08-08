@@ -158,11 +158,12 @@ type restoreData struct {
 }
 
 type cacheExistenceResult struct {
-	exists    bool
-	cacheKey  string
-	store     string
-	fallback  bool
-	expiresAt time.Time
+	exists          bool
+	cacheKey        string
+	storeObjectName string
+	store           string
+	fallback        bool
+	expiresAt       time.Time
 }
 
 type downloadResult struct {
@@ -204,11 +205,12 @@ func (cmd *RestoreCmd) checkCacheExists(ctx context.Context, data *restoreData, 
 	}
 
 	return &cacheExistenceResult{
-		exists:    exists,
-		cacheKey:  retrieveResp.Key,
-		fallback:  retrieveResp.Fallback,
-		expiresAt: retrieveResp.ExpiresAt,
-		store:     retrieveResp.Store,
+		exists:          exists,
+		cacheKey:        retrieveResp.Key,
+		storeObjectName: retrieveResp.StoreObjectName,
+		fallback:        retrieveResp.Fallback,
+		expiresAt:       retrieveResp.ExpiresAt,
+		store:           retrieveResp.Store,
 	}, nil
 }
 
@@ -240,9 +242,9 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, cacheResult *cacheExis
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
-	archiveFile := filepath.Join(tmpDir, cacheResult.cacheKey)
+	archiveFile := filepath.Join(tmpDir, cacheResult.storeObjectName)
 
-	transferInfo, err := blobs.Download(ctx, cacheResult.cacheKey, archiveFile)
+	transferInfo, err := blobs.Download(ctx, cacheResult.storeObjectName, archiveFile)
 	if err != nil {
 		// Clean up temporary directory if download fails
 		if err := os.RemoveAll(tmpDir); err != nil {
@@ -255,6 +257,7 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, cacheResult *cacheExis
 		Int64("size", transferInfo.BytesTransferred).
 		Str("transfer_speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
 		Str("request_id", transferInfo.RequestID).
+		Str("store_object_name", cacheResult.storeObjectName).
 		Dur("duration_ms", transferInfo.Duration).
 		Msg("cache downloaded")
 
