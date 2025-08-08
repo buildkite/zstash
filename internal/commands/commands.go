@@ -3,7 +3,6 @@ package commands
 import (
 	"math"
 
-	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/cache"
 	"github.com/buildkite/zstash/internal/console"
@@ -18,12 +17,12 @@ type CommonFlags struct {
 }
 
 type Globals struct {
-	Debug   bool
-	Version string
-	Client  api.Client
-	Printer *console.Printer
-	Caches  []cache.Cache
-	Common  CommonFlags
+	Caches   []cache.Cache
+	Common   CommonFlags
+	Debug    bool
+	Endpoint string
+	Printer  *console.Printer
+	Version  string
 }
 
 // calculate the compression ratio

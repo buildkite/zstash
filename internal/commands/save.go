@@ -2,12 +2,14 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/alecthomas/kong"
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/cache"
@@ -23,10 +25,20 @@ import (
 )
 
 type SaveCmd struct {
-	Ids []string `flag:"ids" help:"List of comma delimited cache IDs to save, defaults to all." env:"BUILDKITE_CACHE_IDS"`
+	Ids    []string        `flag:"ids" help:"List of comma delimited cache IDs to save, defaults to all." env:"BUILDKITE_CACHE_IDS"`
+	Token  string          `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
+	Config kong.ConfigFlag `flag:"config" help:"The path to the cache configuration file. Defaults to .buildkite/cache.yml" default:".buildkite/cache.yml" env:"BUILDKITE_CACHE_CONFIG" `
 }
 
 func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
+	// check the token is set
+	if cmd.Token == "" {
+		return errors.New("missing token, please set the BUILDKITE_AGENT_ACCESS_TOKEN environment variable")
+	}
+
+	// create a http client
+	client := api.NewClient(ctx, globals.Version, globals.Endpoint, cmd.Token)
+
 	ctx, span := trace.Start(ctx, "SaveCmdRun")
 	defer span.End()
 
@@ -48,7 +60,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 			return fmt.Errorf("cache validation failed for ID %s: %w", cache.ID, err)
 		}
 
-		if err := cmd.saveCache(ctx, cache, globals); err != nil {
+		if err := cmd.saveCache(ctx, cache, client, globals); err != nil {
 			return err
 		}
 	}
@@ -56,7 +68,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *Globals) error {
+func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, client api.Client, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "saveCache")
 	defer span.End()
 
@@ -86,7 +98,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 	globals.Printer.Info("💾", "Starting cache save for id: %s", cache.ID)
 	globals.Printer.Info("🔍", "Checking if cache already exists for key: %s", data.cacheKey)
 
-	_, exists, err := globals.Client.CachePeekExists(ctx, cache.Registry, api.CachePeekReq{
+	_, exists, err := client.CachePeekExists(ctx, cache.Registry, api.CachePeekReq{
 		Key:    data.cacheKey,
 		Branch: globals.Common.Branch,
 	})
@@ -102,7 +114,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 
 	globals.Printer.Info("🔍", "Looking up the cache registry for key: %s", data.cacheKey)
 
-	cacheRegistryResp, err := globals.Client.CacheRegistry(ctx, cache.Registry)
+	cacheRegistryResp, err := client.CacheRegistry(ctx, cache.Registry)
 	if err != nil {
 		return trace.NewError(span, "failed to get cache registry: %w", err)
 	}
@@ -124,7 +136,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 	}
 
 	// Phase 3: Register cache entry
-	registrationResult, err := cmd.registerCacheEntry(ctx, data, archiveResult, globals.Client, globals.Common, cache.Registry, cacheRegistryResp.Store)
+	registrationResult, err := cmd.registerCacheEntry(ctx, data, archiveResult, client, globals.Common, cache.Registry, cacheRegistryResp.Store)
 	if err != nil {
 		return err
 	}
@@ -138,7 +150,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 	}
 
 	// Phase 5: Commit cache
-	if err := cmd.commitCache(ctx, globals.Client, cache.Registry, registrationResult.uploadID); err != nil {
+	if err := cmd.commitCache(ctx, client, cache.Registry, registrationResult.uploadID); err != nil {
 		return err
 	}
 

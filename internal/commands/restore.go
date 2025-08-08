@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/cache"
@@ -29,10 +31,22 @@ const (
 )
 
 type RestoreCmd struct {
-	Ids []string `flag:"ids" help:"List of comma delimited cache IDs to restore, defaults to all." env:"BUILDKITE_CACHE_IDS"`
+	Ids    []string        `flag:"ids" help:"List of comma delimited cache IDs to restore, defaults to all." env:"BUILDKITE_CACHE_IDS"`
+	Token  string          `flag:"token" help:"The buildkite agent access token to use." env:"BUILDKITE_AGENT_ACCESS_TOKEN" required:"true"`
+	Config kong.ConfigFlag `flag:"config" help:"The path to the cache configuration file. Defaults to .buildkite/cache.yml" default:".buildkite/cache.yml" env:"BUILDKITE_CACHE_CONFIG" `
 }
 
 func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
+	// check the token is set
+	if cmd.Token == "" {
+		return errors.New("missing token, please set the BUILDKITE_AGENT_ACCESS_TOKEN environment variable")
+	}
+
+	// create a http client
+	client := api.NewClient(ctx, globals.Version, globals.Endpoint, cmd.Token)
+
+	caches = getCaches()
+
 	ctx, span := trace.Start(ctx, "RestoreCmdRun")
 	defer span.End()
 
@@ -54,7 +68,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 			return fmt.Errorf("cache validation failed for ID %s: %w", cache.ID, err)
 		}
 
-		if err := cmd.restoreCache(ctx, cache, globals); err != nil {
+		if err := cmd.restoreCache(ctx, cache, client, globals); err != nil {
 			return err
 		}
 	}
@@ -62,7 +76,7 @@ func (cmd *RestoreCmd) Run(ctx context.Context, globals *Globals) error {
 	return nil
 }
 
-func (cmd *RestoreCmd) restoreCache(ctx context.Context, cache cache.Cache, globals *Globals) error {
+func (cmd *RestoreCmd) restoreCache(ctx context.Context, cache cache.Cache, client api.Client, globals *Globals) error {
 	ctx, span := trace.Start(ctx, "restoreCache")
 	defer span.End()
 
@@ -85,7 +99,7 @@ func (cmd *RestoreCmd) restoreCache(ctx context.Context, cache cache.Cache, glob
 	globals.Printer.Info("♻️", "Starting restore for Registry: %s ID: %s", cache.Registry, cache.ID)
 
 	// Phase 2: Check if cache exists
-	cacheResult, err := cmd.checkCacheExists(ctx, data, globals.Client, cache.Registry, globals.Common.Branch)
+	cacheResult, err := cmd.checkCacheExists(ctx, data, client, cache.Registry, globals.Common.Branch)
 	if err != nil {
 		return trace.NewError(span, "failed to check cache existence: %w", err)
 	}
@@ -291,4 +305,10 @@ func (cmd *RestoreCmd) extractFiles(ctx context.Context, span oteltrace.Span, do
 		archiveInfo: archiveInfo,
 		paths:       paths,
 	}, nil
+}
+
+// Load caches from the config file using Kong
+func getCaches() []cache.Cache {
+	return 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
+	kong.Configuration(kongyaml.Loader),
 }
