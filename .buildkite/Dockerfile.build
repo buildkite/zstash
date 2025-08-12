@@ -1,4 +1,4 @@
-FROM golang:1.24.5@sha256:ef5b4be1f94b36c90385abd9b6b4f201723ae28e71acacb76d00687333c17282
+FROM golang:1.24.6@sha256:2c89c41fb9efc3807029b59af69645867cfe978d2b877d475be0d72f6c6ce6f6
 
 COPY --from=goreleaser/goreleaser-pro:v2.9.0@sha256:adf70d3f53233855f6091c58c2e3f182fd41311fe322cbf3284994bb6991a53d /usr/bin/goreleaser /usr/local/bin/goreleaser
 COPY --from=ghcr.io/ko-build/ko:20b15e67194215721faba356b857fcf5d621dfaa /ko-app/ko /usr/local/bin/ko
