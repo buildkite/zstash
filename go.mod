@@ -6,7 +6,7 @@ toolchain go1.24.1
 
 require (
 	drjosh.dev/zzglob v0.4.0
-	github.com/alecthomas/kong v1.12.0
+	github.com/alecthomas/kong v1.12.1
 	github.com/alecthomas/kong-yaml v0.2.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/dustin/go-humanize v1.0.1
