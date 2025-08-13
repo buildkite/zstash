@@ -79,7 +79,7 @@ func validateKey(key string) error {
 	return nil
 }
 
-func (n *NscStore) Upload(ctx context.Context, filePath string, key string) (*TransferInfo, error) {
+func (n *NscStore) Upload(ctx context.Context, filePath string, key string, expiresAt time.Time) (*TransferInfo, error) {
 	_, span := trace.Start(ctx, "NscStore.Upload")
 	defer span.End()
 

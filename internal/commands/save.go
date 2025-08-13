@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
@@ -132,7 +133,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", registrationResult.uploadID)
 
 	// Phase 4: Upload archive
-	uploadResult, err := cmd.uploadArchive(ctx, registrationResult.storeObjectName, cacheRegistryResp.Store, archiveResult, globals.Printer, globals.Common)
+	uploadResult, err := cmd.uploadArchive(ctx, registrationResult, cacheRegistryResp.Store, archiveResult, globals.Printer, globals.Common)
 	if err != nil {
 		return err
 	}
@@ -177,6 +178,7 @@ type archiveResult struct {
 type registrationResult struct {
 	uploadID        string
 	storeObjectName string
+	expiresAt       time.Time
 }
 
 type uploadResult struct {
@@ -244,13 +246,14 @@ func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, data *saveData, arch
 	return &registrationResult{
 		uploadID:        createResp.UploadID,
 		storeObjectName: createResp.StoreObjectName,
+		expiresAt:       createResp.ExpiresAt,
 	}, nil
 }
 
-func (cmd *SaveCmd) uploadArchive(ctx context.Context, storeObjectName string, cacheStore string, archiveResult *archiveResult, printer *console.Printer, common CommonFlags) (*uploadResult, error) {
+func (cmd *SaveCmd) uploadArchive(ctx context.Context, registrationResult *registrationResult, cacheStore string, archiveResult *archiveResult, printer *console.Printer, common CommonFlags) (*uploadResult, error) {
 	log.Info().
 		Str("bucket_url", common.BucketURL).
-		Str("store_object_name", storeObjectName).
+		Str("store_object_name", registrationResult.storeObjectName).
 		Str("store", cacheStore).
 		Msg("Uploading cache archive")
 
@@ -273,7 +276,7 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, storeObjectName string, c
 
 	printer.Info("⬆️", "Uploading cache archive...")
 
-	transferInfo, err := blobs.Upload(ctx, archiveResult.fileInfo.ArchivePath, storeObjectName)
+	transferInfo, err := blobs.Upload(ctx, archiveResult.fileInfo.ArchivePath, registrationResult.storeObjectName, registrationResult.expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload cache: %w", err)
 	}
@@ -287,7 +290,7 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, storeObjectName string, c
 		Str("transfer_speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
 		Str("request_id", transferInfo.RequestID).
 		Dur("duration_ms", transferInfo.Duration).
-		Str("store_object_name", storeObjectName).
+		Str("store_object_name", registrationResult.storeObjectName).
 		Msg("Cache uploaded")
 
 	return &uploadResult{

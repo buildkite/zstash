@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/buildkite/zstash/internal/trace"
+	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	"gocloud.dev/blob"
 	_ "gocloud.dev/blob/fileblob" // Local file driver for testing
@@ -52,7 +55,7 @@ func (b *GocloudBlob) Close() error {
 }
 
 // Upload uploads a file to blob storage
-func (b *GocloudBlob) Upload(ctx context.Context, filePath string, key string) (*TransferInfo, error) {
+func (b *GocloudBlob) Upload(ctx context.Context, filePath string, key string, expiresAt time.Time) (*TransferInfo, error) {
 	ctx, span := trace.Start(ctx, "GocloudBlob.Upload")
 	defer span.End()
 
@@ -75,7 +78,24 @@ func (b *GocloudBlob) Upload(ctx context.Context, filePath string, key string) (
 	}
 
 	// Create a writer for the blob
-	writer, err := b.bucket.NewWriter(ctx, fullKey, nil)
+	writer, err := b.bucket.NewWriter(ctx, fullKey, &blob.WriterOptions{
+		Metadata: map[string]string{
+			"Content-Type": "application/zip",
+		},
+		BeforeWrite: func(asFunc func(obj any) bool) error {
+			// update the expiry of the object
+			var (
+				req *s3.PutObjectInput
+			)
+			if asFunc(&req) {
+				log.Ctx(ctx).Info().Time("expiresAt", expiresAt).Msg("Setting S3 object expiration")
+
+				req.Expires = aws.Time(expiresAt)
+			}
+
+			return nil
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create blob writer: %w", err)
 	}
