@@ -15,8 +15,8 @@ cloud.google.com/go/monitoring v1.24.2 h1:5OTsoJ1dXYIiMiuL+sYscLc9BumrL3CarVLL7d
 cloud.google.com/go/monitoring v1.24.2/go.mod h1:x7yzPWcgDRnPEv3sI+jJGBkwl5qINf+6qY4eq0I9B4U=
 cloud.google.com/go/storage v1.55.0 h1:NESjdAToN9u1tmhVqhXCaCwYBuvEhZLLv0gBr+2znf0=
 cloud.google.com/go/storage v1.55.0/go.mod h1:ztSmTTwzsdXe5syLVS0YsbFxXuvEmEyZj7v7zChEmuY=
-drjosh.dev/zzglob v0.4.0 h1:gOb46aIHyHG8BlYpvZZM4dqR2dpsbKtI82IbYVAYIj4=
-drjosh.dev/zzglob v0.4.0/go.mod h1:c3V3WPyfG+81h/bNOalEaba0jEQl16i9efSAmWOeOw8=
+drjosh.dev/zzglob v0.4.1 h1:HIf8v8REooNw//kGDUgSqPG5uMY7D69/jfZTUjmRT6A=
+drjosh.dev/zzglob v0.4.1/go.mod h1:SbYDdesQC13iyGiEwV8dJfJbyz7/Qiawrd5ODdJQCoo=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.27.0 h1:ErKg/3iS1AKcTkf3yixlZ54f9U1rljCkQyEXWUnIUxc=
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.27.0/go.mod h1:yAZHSGnqScoU556rBOVkwLze6WP5N+U11RHuWaGVxwY=
