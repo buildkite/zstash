@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -217,17 +216,17 @@ func TestNscStore_Upload_Validation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test invalid file path
-	_, err = store.Upload(ctx, "invalid;path", "valid-key", time.Now().Add(24*time.Hour))
+	_, err = store.Upload(ctx, "invalid;path", "valid-key")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid file path")
 
 	// Test invalid key
-	_, err = store.Upload(ctx, testFile, "invalid key with spaces", time.Now().Add(24*time.Hour))
+	_, err = store.Upload(ctx, testFile, "invalid key with spaces")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid key")
 
 	// Test valid inputs (will fail with nsc command error, but validation passes)
-	_, err = store.Upload(ctx, testFile, "valid-key", time.Now().Add(24*time.Hour))
+	_, err = store.Upload(ctx, testFile, "valid-key")
 	// This will error because nsc command likely doesn't exist or isn't configured
 	// but the error should be about command execution, not validation
 	if err != nil {
@@ -291,7 +290,7 @@ func TestNscStore_Integration(t *testing.T) {
 
 	// Test upload
 	key := "integration-test/test-file.txt"
-	transferInfo, err := store.Upload(ctx, testFile, key, time.Now().Add(24*time.Hour))
+	transferInfo, err := store.Upload(ctx, testFile, key)
 	require.NoError(t, err, "Upload should succeed with valid NSC setup")
 
 	assert.Greater(t, transferInfo.BytesTransferred, int64(0))

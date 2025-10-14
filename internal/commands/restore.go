@@ -215,7 +215,7 @@ func (cmd *RestoreCmd) checkCacheExists(ctx context.Context, data *restoreData, 
 }
 
 func (cmd *RestoreCmd) downloadCache(ctx context.Context, cacheResult *cacheExistenceResult, bucketURL string) (*downloadResult, error) {
-	log.Info().
+	log.Debug().
 		Str("bucket_url", bucketURL).
 		Str("store", cacheResult.store).
 		Msg("restoring cache")

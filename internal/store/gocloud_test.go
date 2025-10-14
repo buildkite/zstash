@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,7 +37,7 @@ func TestGocloudBlob_LocalFile(t *testing.T) {
 
 	// Test upload
 	key := "my-test-file.txt"
-	transferInfo, err := blob.Upload(ctx, testFile, key, time.Now().Add(24*time.Hour))
+	transferInfo, err := blob.Upload(ctx, testFile, key)
 	require.NoError(t, err)
 	assert.Greater(t, transferInfo.BytesTransferred, int64(0))
 	assert.Greater(t, transferInfo.TransferSpeed, 0.0)

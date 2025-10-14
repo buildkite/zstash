@@ -76,12 +76,11 @@ type CacheRetrieveResp struct {
 }
 
 type CacheCreateResp struct {
-	UploadID           string    `json:"upload_id"` // the identifier used to write the key in blob storage
-	StoreObjectName    string    `json:"store_object_name"`
-	ExpiresAt          time.Time `json:"expires_at"`
-	Multipart          bool      `json:"multipart"`
-	UploadInstructions []string  `json:"upload_instructions"`
-	Message            string    `json:"message"`
+	UploadID           string   `json:"upload_id"` // the identifier used to write the key in blob storage
+	StoreObjectName    string   `json:"store_object_name"`
+	Multipart          bool     `json:"multipart"`
+	UploadInstructions []string `json:"upload_instructions"`
+	Message            string   `json:"message"`
 }
 
 type CachePeekReq struct {

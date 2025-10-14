@@ -7,13 +7,11 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/buildkite/zstash/internal/api"
 	"github.com/buildkite/zstash/internal/archive"
 	"github.com/buildkite/zstash/internal/cache"
 	"github.com/buildkite/zstash/internal/configuration"
-	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/store"
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/charmbracelet/lipgloss"
@@ -75,8 +73,7 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 
 	globals.Printer.Info("❔", "Validating and preparing cache save for Registry: %s ID: %s ", cache.Registry, cache.ID)
 
-	// Phase 1: Validate and prepare data
-	data, err := cmd.validateAndPrepare(cache)
+	_, err := checkPathsExist(cache.Paths)
 	if err != nil {
 
 		globals.Printer.Error("❌", "Invalid cache configuration ID: %s: %s", cache.ID, err)
@@ -85,10 +82,10 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 	}
 
 	globals.Printer.Info("💾", "Starting cache save for id: %s", cache.ID)
-	globals.Printer.Info("🔍", "Checking if cache already exists for key: %s", data.cacheKey)
+	globals.Printer.Info("🔍", "Checking if cache already exists for key: %s", cache.Key)
 
 	_, exists, err := globals.Client.CachePeekExists(ctx, cache.Registry, api.CachePeekReq{
-		Key:    data.cacheKey,
+		Key:    cache.Key,
 		Branch: globals.Common.Branch,
 	})
 	if err != nil {
@@ -96,12 +93,12 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 	}
 
 	if exists {
-		globals.Printer.Success("✅", "Cache already exists for key: %s", data.cacheKey)
+		globals.Printer.Success("✅", "Cache already exists for key: %s", cache.Key)
 		fmt.Println("true") // write to stdout
 		return nil
 	}
 
-	globals.Printer.Info("🔍", "Looking up the cache registry for key: %s", data.cacheKey)
+	globals.Printer.Info("🔍", "Looking up the cache registry for key: %s", cache.Key)
 
 	cacheRegistryResp, err := globals.Client.CacheRegistry(ctx, cache.Registry)
 	if err != nil {
@@ -116,102 +113,22 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 		return fmt.Errorf("invalid cache store configuration: %w", err)
 	}
 
-	globals.Printer.Info("📦", "Creating new cache entry for key: %s store: %s", data.cacheKey, cacheRegistryResp.Store)
+	globals.Printer.Info("📦", "Creating new cache entry for key: %s store: %s", cache.Key, cacheRegistryResp.Store)
 
 	// Phase 2: Build archive
-	archiveResult, err := cmd.buildArchive(ctx, data, globals.Printer)
+	globals.Printer.Info("🗜️", "Building archive for paths: %v", cache.Paths)
+
+	fileInfo, err := archive.BuildArchive(ctx, cache.Paths, cache.Key)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to build archive: %w", err)
 	}
 
-	// Phase 3: Register cache entry
-	registrationResult, err := cmd.registerCacheEntry(ctx, data, archiveResult, globals.Client, globals.Common, cache.Registry, cacheRegistryResp.Store)
-	if err != nil {
-		return err
-	}
-
-	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", registrationResult.uploadID)
-
-	// Phase 4: Upload archive
-	uploadResult, err := cmd.uploadArchive(ctx, registrationResult, cacheRegistryResp.Store, archiveResult, globals.Printer, globals.Common)
-	if err != nil {
-		return err
-	}
-
-	// Phase 5: Commit cache
-	if err := cmd.commitCache(ctx, globals.Client, cache.Registry, registrationResult.uploadID); err != nil {
-		return err
-	}
-
-	globals.Printer.Success("🎉", "Cache committed successfully")
-
-	// Phase 6: Print summary
-	t := table.New().
-		Border(lipgloss.NormalBorder()).
-		Row("Key", data.cacheKey).
-		Row("Archive Size", humanize.Bytes(Int64ToUint64(archiveResult.fileInfo.Size))).
-		Row("Written Bytes", humanize.Bytes(Int64ToUint64(archiveResult.fileInfo.WrittenBytes))).
-		Row("Written Entries", fmt.Sprintf("%d", archiveResult.fileInfo.WrittenEntries)).
-		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(archiveResult.fileInfo))).
-		Row("Build Duration", archiveResult.fileInfo.Duration.String()).
-		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", uploadResult.transferInfo.TransferSpeed)).
-		Row("Upload Duration", uploadResult.transferInfo.Duration.String()).
-		Row("Paths", strings.Join(data.paths, ", "))
-
-	globals.Printer.Info("📊", "Cache save summary:\n%s", t.Render())
-
-	fmt.Println("true") // write to stdout
-
-	return nil
-}
-
-type saveData struct {
-	paths        []string
-	cacheKey     string
-	fallbackKeys []string
-}
-
-type archiveResult struct {
-	fileInfo *archive.ArchiveInfo
-}
-
-type registrationResult struct {
-	uploadID        string
-	storeObjectName string
-	expiresAt       time.Time
-}
-
-type uploadResult struct {
-	transferInfo *store.TransferInfo
-}
-
-func (cmd *SaveCmd) validateAndPrepare(cache cache.Cache) (*saveData, error) {
-	_, err := checkPathsExist(cache.Paths)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check paths exist: %w", err)
-	}
-
-	return &saveData{
-		paths:        cache.Paths,
-		cacheKey:     cache.Key,
-		fallbackKeys: cache.FallbackKeys,
-	}, nil
-}
-
-func (cmd *SaveCmd) buildArchive(ctx context.Context, data *saveData, printer *console.Printer) (*archiveResult, error) {
-	printer.Info("🗜️", "Building archive for paths: %v", data.paths)
-
-	fileInfo, err := archive.BuildArchive(ctx, data.paths, data.cacheKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build archive: %w", err)
-	}
-
-	printer.Success("✅", "Archive built successfully: %s (%s)",
+	globals.Printer.Success("✅", "Archive built successfully: %s (%s)",
 		humanize.Bytes(Int64ToUint64(fileInfo.Size)),
 		humanize.Bytes(Int64ToUint64(fileInfo.WrittenBytes)))
 
 	log.Info().
-		Str("key", data.cacheKey).
+		Str("key", cache.Key).
 		Int64("size", fileInfo.Size).
 		Str("sha256sum", fileInfo.Sha256sum).
 		Dur("duration_ms", fileInfo.Duration).
@@ -220,68 +137,58 @@ func (cmd *SaveCmd) buildArchive(ctx context.Context, data *saveData, printer *c
 		Float64("compression_ratio", compressionRatio(fileInfo)).
 		Msg("archive built")
 
-	return &archiveResult{
-		fileInfo: fileInfo,
-	}, nil
-}
-
-func (cmd *SaveCmd) registerCacheEntry(ctx context.Context, data *saveData, archiveResult *archiveResult, client api.Client, common CommonFlags, registry, store string) (*registrationResult, error) {
-	createResp, err := client.CacheCreate(ctx, registry, api.CacheCreateReq{
-		Key:          data.cacheKey,
-		FallbackKeys: data.fallbackKeys,
-		Compression:  common.Format,
-		FileSize:     int(archiveResult.fileInfo.Size),
-		Digest:       fmt.Sprintf("sha256:%s", archiveResult.fileInfo.Sha256sum),
-		Paths:        data.paths,
+	createResp, err := globals.Client.CacheCreate(ctx, cacheRegistryResp.Name, api.CacheCreateReq{
+		Key:          cache.Key,
+		FallbackKeys: cache.FallbackKeys,
+		Compression:  globals.Common.Format,
+		FileSize:     int(fileInfo.Size),
+		Digest:       fmt.Sprintf("sha256:%s", fileInfo.Sha256sum),
+		Paths:        cache.Paths,
 		Platform:     fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
-		Pipeline:     common.Pipeline,
-		Branch:       common.Branch,
-		Organization: common.Organization,
-		Store:        store,
+		Pipeline:     globals.Common.Pipeline,
+		Branch:       globals.Common.Branch,
+		Organization: globals.Common.Organization,
+		Store:        cacheRegistryResp.Store,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create cache: %w", err)
+		return fmt.Errorf("failed to create cache entry: %w", err)
 	}
 
-	return &registrationResult{
-		uploadID:        createResp.UploadID,
-		storeObjectName: createResp.StoreObjectName,
-		expiresAt:       createResp.ExpiresAt,
-	}, nil
-}
+	globals.Printer.Info("🚀", "Registering cache entry with upload ID: %s", createResp.UploadID)
 
-func (cmd *SaveCmd) uploadArchive(ctx context.Context, registrationResult *registrationResult, cacheStore string, archiveResult *archiveResult, printer *console.Printer, common CommonFlags) (*uploadResult, error) {
+	// Phase 4: Upload archive
+	// uploadResult, err := cmd.uploadArchive(ctx, registrationResult, cacheRegistryResp.Store, archiveResult, globals.Printer, globals.Common)
+
 	log.Info().
-		Str("bucket_url", common.BucketURL).
-		Str("store_object_name", registrationResult.storeObjectName).
-		Str("store", cacheStore).
+		Str("bucket_url", globals.Common.BucketURL).
+		Str("store_object_name", createResp.StoreObjectName).
+		Str("store", cacheRegistryResp.Store).
 		Msg("Uploading cache archive")
 
 	var (
 		blobs store.Blob
-		err   error
 	)
 
-	switch cacheStore {
+	switch cacheRegistryResp.Store {
 	case store.LocalS3Store:
-		blobs, err = store.NewGocloudBlob(ctx, common.BucketURL, "")
+		blobs, err = store.NewGocloudBlob(ctx, globals.Common.BucketURL, "")
 		if err != nil {
-			return nil, fmt.Errorf("failed to create s3 blob store: %w", err)
+			return fmt.Errorf("failed to create s3 blob store: %w", err)
 		}
 	case store.LocalHostedAgents:
 		blobs = store.NewNscStore()
 	default:
-		return nil, fmt.Errorf("unsupported store type: %s", cacheStore)
+		return fmt.Errorf("unsupported store type: %s", cacheRegistryResp.Store)
 	}
 
-	printer.Info("⬆️", "Uploading cache archive...")
+	globals.Printer.Info("⬆️", "Uploading cache archive...")
 
-	transferInfo, err := blobs.Upload(ctx, archiveResult.fileInfo.ArchivePath, registrationResult.storeObjectName, registrationResult.expiresAt)
+	transferInfo, err := blobs.Upload(ctx, fileInfo.ArchivePath, createResp.StoreObjectName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to upload cache: %w", err)
+		return fmt.Errorf("failed to upload cache: %w", err)
 	}
 
-	printer.Success("✅", "Upload completed: %s at %.2fMB/s",
+	globals.Printer.Success("✅", "Upload completed: %s at %.2fMB/s",
 		humanize.Bytes(Int64ToUint64(transferInfo.BytesTransferred)),
 		transferInfo.TransferSpeed)
 
@@ -290,17 +197,11 @@ func (cmd *SaveCmd) uploadArchive(ctx context.Context, registrationResult *regis
 		Str("transfer_speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
 		Str("request_id", transferInfo.RequestID).
 		Dur("duration_ms", transferInfo.Duration).
-		Str("store_object_name", registrationResult.storeObjectName).
+		Str("store_object_name", createResp.StoreObjectName).
 		Msg("Cache uploaded")
 
-	return &uploadResult{
-		transferInfo: transferInfo,
-	}, nil
-}
-
-func (cmd *SaveCmd) commitCache(ctx context.Context, client api.Client, registry, uploadID string) error {
-	commitResp, err := client.CacheCommit(ctx, registry, api.CacheCommitReq{
-		UploadID: uploadID,
+	commitResp, err := globals.Client.CacheCommit(ctx, cache.Registry, api.CacheCommitReq{
+		UploadID: createResp.UploadID,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to commit cache: %w", err)
@@ -308,6 +209,25 @@ func (cmd *SaveCmd) commitCache(ctx context.Context, client api.Client, registry
 
 	log.Debug().Str("message", commitResp.Message).
 		Msg("Cache committed successfully")
+
+	globals.Printer.Success("🎉", "Cache committed successfully")
+
+	// Phase 6: Print summary
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		Row("Key", cache.Key).
+		Row("Archive Size", humanize.Bytes(Int64ToUint64(fileInfo.Size))).
+		Row("Written Bytes", humanize.Bytes(Int64ToUint64(fileInfo.WrittenBytes))).
+		Row("Written Entries", fmt.Sprintf("%d", fileInfo.WrittenEntries)).
+		Row("Compression Ratio", fmt.Sprintf("%.2f", compressionRatio(fileInfo))).
+		Row("Build Duration", fileInfo.Duration.String()).
+		Row("Transfer Speed", fmt.Sprintf("%.2fMB/s", transferInfo.TransferSpeed)).
+		Row("Upload Duration", transferInfo.Duration.String()).
+		Row("Paths", strings.Join(cache.Paths, ", "))
+
+	globals.Printer.Info("📊", "Cache save summary:\n%s", t.Render())
+
+	fmt.Println("true") // write to stdout
 
 	return nil
 }
