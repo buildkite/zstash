@@ -75,7 +75,11 @@ func (b *GocloudBlob) Upload(ctx context.Context, filePath string, key string) (
 	}
 
 	// Create a writer for the blob
-	writer, err := b.bucket.NewWriter(ctx, fullKey, nil)
+	writer, err := b.bucket.NewWriter(ctx, fullKey, &blob.WriterOptions{
+		Metadata: map[string]string{
+			"Content-Type": "application/zip",
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create blob writer: %w", err)
 	}
