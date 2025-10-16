@@ -79,6 +79,8 @@ func (b *GocloudBlob) Upload(ctx context.Context, filePath string, key string) (
 		Metadata: map[string]string{
 			"Content-Type": "application/zip",
 		},
+		MaxConcurrency: 10,
+		BufferSize:     8 * 1024 * 1024, // 8MB buffer
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create blob writer: %w", err)

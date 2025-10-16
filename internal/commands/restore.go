@@ -225,16 +225,9 @@ func (cmd *RestoreCmd) downloadCache(ctx context.Context, cacheResult *cacheExis
 		err   error
 	)
 
-	switch cacheResult.store {
-	case store.LocalS3Store:
-		blobs, err = store.NewGocloudBlob(ctx, bucketURL, "")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create s3 blob store: %w", err)
-		}
-	case store.LocalHostedAgents:
-		blobs = store.NewNscStore()
-	default:
-		return nil, fmt.Errorf("unsupported store type: %s", cacheResult.store)
+	blobs, err = store.NewBlobStore(ctx, cacheResult.store, bucketURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create blob store: %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "zstash-restore")
