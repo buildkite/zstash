@@ -203,7 +203,9 @@ func TestRunCommandValidation(t *testing.T) {
 // TestNscStore_MockUpload tests the Upload method with mocked command execution
 // Note: This test will fail if nsc is not installed, but shows the structure
 func TestNscStore_Upload_Validation(t *testing.T) {
-	store := NewNscStore()
+	store, err := NewNscStore()
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	// Create a temporary test file
@@ -237,7 +239,9 @@ func TestNscStore_Upload_Validation(t *testing.T) {
 
 // TestNscStore_Download_Validation tests the Download method validation
 func TestNscStore_Download_Validation(t *testing.T) {
-	store := NewNscStore()
+	store, err := NewNscStore()
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	tmpDir, err := os.MkdirTemp("", "nsc-test")
@@ -274,7 +278,9 @@ func TestNscStore_Integration(t *testing.T) {
 		t.Skip("Skipping NSC integration test (set NSC_INTEGRATION_TEST=1 to run)")
 	}
 
-	store := NewNscStore()
+	store, err := NewNscStore()
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	// Create temporary directories and files

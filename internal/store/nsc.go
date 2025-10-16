@@ -21,8 +21,8 @@ import (
 type NscStore struct {
 }
 
-func NewNscStore() *NscStore {
-	return &NscStore{}
+func NewNscStore() (*NscStore, error) {
+	return &NscStore{}, nil
 }
 
 // validateFilePath validates that a file path is safe for use in commands

@@ -169,16 +169,9 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cache cache.Cache, globals *G
 		blobs store.Blob
 	)
 
-	switch cacheRegistryResp.Store {
-	case store.LocalS3Store:
-		blobs, err = store.NewGocloudBlob(ctx, globals.Common.BucketURL, "")
-		if err != nil {
-			return fmt.Errorf("failed to create s3 blob store: %w", err)
-		}
-	case store.LocalHostedAgents:
-		blobs = store.NewNscStore()
-	default:
-		return fmt.Errorf("unsupported store type: %s", cacheRegistryResp.Store)
+	blobs, err = store.NewBlobStore(ctx, cacheRegistryResp.Store, globals.Common.BucketURL)
+	if err != nil {
+		return fmt.Errorf("failed to create blob store: %w", err)
 	}
 
 	globals.Printer.Info("⬆️", "Uploading cache archive...")
