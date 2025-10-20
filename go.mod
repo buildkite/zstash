@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
-	drjosh.dev/zzglob v0.4.1
+	drjosh.dev/zzglob v0.4.2
 	github.com/alecthomas/kong v1.12.1
 	github.com/alecthomas/kong-yaml v0.2.0
 	github.com/aws/aws-sdk-go-v2 v1.36.5
