@@ -24,14 +24,8 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 
 	log.Info().Str("version", globals.Version).Msg("Running SaveCmd")
 
-	// Get cache client from globals
-	cacheClient, ok := globals.CacheClient.(*zstash.Cache)
-	if !ok {
-		return fmt.Errorf("invalid cache client")
-	}
-
 	// Get list of all caches
-	caches := cacheClient.ListCaches()
+	caches := globals.CacheClient.ListCaches()
 
 	// Filter by IDs if specified
 	var cacheIDs []string
@@ -48,7 +42,7 @@ func (cmd *SaveCmd) Run(ctx context.Context, globals *Globals) error {
 	for _, cacheID := range cacheIDs {
 		span.SetAttributes(attribute.String("cache_id", cacheID))
 
-		if err := cmd.saveCache(ctx, cacheID, cacheClient, globals); err != nil {
+		if err := cmd.saveCache(ctx, cacheID, globals.CacheClient, globals); err != nil {
 			return err
 		}
 	}

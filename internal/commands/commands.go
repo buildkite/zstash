@@ -3,6 +3,7 @@ package commands
 import (
 	"math"
 
+	"github.com/buildkite/zstash"
 	"github.com/buildkite/zstash/api"
 	"github.com/buildkite/zstash/cache"
 	"github.com/buildkite/zstash/internal/console"
@@ -20,7 +21,7 @@ type Globals struct {
 	Debug       bool
 	Version     string
 	Client      api.Client
-	CacheClient interface{} // Will be *zstash.Cache, but we avoid import cycle by using interface{}
+	CacheClient *zstash.Cache
 	Printer     *console.Printer
 	Caches      []cache.Cache
 	Common      CommonFlags

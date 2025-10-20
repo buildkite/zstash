@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -42,14 +43,19 @@ var (
 func main() {
 	ctx := context.Background()
 
-	start := time.Now()
-
 	// Overloads `cli` with configuration file values.
 	cmd := kong.Parse(&cli,
 		kong.Vars{"version": version, "default_config_path": defaultConfigPath},
 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
 		kong.Configuration(kongyaml.Loader),
 		kong.BindTo(ctx, (*context.Context)(nil)))
+
+	err := Run(ctx, cmd)
+	cmd.FatalIfErrorf(err)
+}
+
+func Run(ctx context.Context, cmd *kong.Context) error {
+	start := time.Now()
 
 	// check the token is set
 	if cli.Token == "" {
@@ -58,7 +64,7 @@ func main() {
 
 	tp, err := trace.NewProvider(ctx, cli.TraceExporter, "github.com/buildkite/zstash", version)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create trace provider")
+		return fmt.Errorf("failed to create trace provider: %w", err)
 	}
 	defer func() {
 		_ = tp.Shutdown(ctx)
@@ -78,7 +84,7 @@ func main() {
 		Caches:       cli.Caches,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create cache client") //nolint:gocritic // span.End() called manually above
+		return fmt.Errorf("failed to create cache client: %w", err)
 	}
 
 	printer := console.NewPrinter(os.Stderr)
@@ -90,7 +96,11 @@ func main() {
 	}
 
 	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, CacheClient: cacheClient, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
-	cmd.FatalIfErrorf(err)
+	if err != nil {
+		return fmt.Errorf("command %s failed: %w", cmd.Command(), err)
+	}
 
 	printer.Info("✅", "%s completed successfully in %s", cmd.Command(), time.Since(start).String())
+
+	return nil
 }
