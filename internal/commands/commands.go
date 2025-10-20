@@ -3,9 +3,9 @@ package commands
 import (
 	"math"
 
-	"github.com/buildkite/zstash/internal/api"
-	"github.com/buildkite/zstash/internal/archive"
-	"github.com/buildkite/zstash/internal/cache"
+	"github.com/buildkite/zstash/api"
+	"github.com/buildkite/zstash/archive"
+	"github.com/buildkite/zstash/cache"
 	"github.com/buildkite/zstash/internal/console"
 )
 
@@ -18,12 +18,13 @@ type CommonFlags struct {
 }
 
 type Globals struct {
-	Debug   bool
-	Version string
-	Client  api.Client
-	Printer *console.Printer
-	Caches  []cache.Cache
-	Common  CommonFlags
+	Debug       bool
+	Version     string
+	Client      api.Client
+	CacheClient interface{} // Will be *zstash.Cache, but we avoid import cycle by using interface{}
+	Printer     *console.Printer
+	Caches      []cache.Cache
+	Common      CommonFlags
 }
 
 // calculate the compression ratio

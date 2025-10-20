@@ -28,10 +28,14 @@ var ignoreFiles = []string{
 }
 
 func Template(id, key string) (string, error) {
+	return TemplateWithEnv(id, key, nil)
+}
+
+func TemplateWithEnv(id, key string, env map[string]string) (string, error) {
 	tpl := template.New("key").Option("missingkey=zero").Funcs(template.FuncMap{
 		"id":       getID(id),
 		"checksum": checksumPaths(),
-		"env":      getEnv,
+		"env":      getEnvWithMap(env),
 		"agent":    getAgent,
 	})
 	tpl, err := tpl.Parse(key)
@@ -71,19 +75,31 @@ func getAgent() map[string]string {
 }
 
 func getEnv(key string) string {
+	return getEnvWithMap(nil)(key)
+}
 
-	log.Info().Str("key", key).Msg("getEnv")
+func getEnvWithMap(envMap map[string]string) func(string) string {
+	return func(key string) string {
+		log.Info().Str("key", key).Msg("getEnv")
 
-	// get the env variable
-	env := os.Getenv(key)
-	if env == "" {
-		return ""
+		var env string
+		if envMap != nil {
+			// Use provided environment map
+			env = envMap[key]
+		} else {
+			// Fall back to OS environment
+			env = os.Getenv(key)
+		}
+
+		if env == "" {
+			return ""
+		}
+
+		// remove all leading and trailing whitespace
+		env = strings.TrimSpace(env)
+
+		return env
 	}
-
-	// remove all leading and trailing whitespace
-	env = strings.TrimSpace(env)
-
-	return env
 }
 
 func checksumPaths() func(files ...string) string {

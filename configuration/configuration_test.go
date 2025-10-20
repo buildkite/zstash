@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/buildkite/zstash/internal/cache"
+	"github.com/buildkite/zstash/cache"
 	"github.com/stretchr/testify/require"
 )
 

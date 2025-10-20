@@ -7,8 +7,9 @@ import (
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
-	"github.com/buildkite/zstash/internal/api"
-	"github.com/buildkite/zstash/internal/cache"
+	"github.com/buildkite/zstash"
+	"github.com/buildkite/zstash/api"
+	"github.com/buildkite/zstash/cache"
 	"github.com/buildkite/zstash/internal/commands"
 	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/trace"
@@ -69,6 +70,20 @@ func main() {
 	// create a http client
 	client := api.NewClient(ctx, version, cli.Endpoint, cli.Token)
 
+	// create cache client
+	cacheClient, err := zstash.NewCache(zstash.Config{
+		Client:       client,
+		BucketURL:    cli.BucketURL,
+		Format:       cli.Format,
+		Branch:       cli.Branch,
+		Pipeline:     cli.Pipeline,
+		Organization: cli.Organization,
+		Caches:       cli.Caches,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create cache client")
+	}
+
 	printer := console.NewPrinter(os.Stderr)
 
 	if cli.Debug {
@@ -77,7 +92,7 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, CacheClient: cacheClient, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
 	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
