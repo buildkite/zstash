@@ -10,13 +10,34 @@ import (
 
 // NewCache creates and validates a new cache client.
 //
-// This function:
-//  1. Validates the configuration
-//  2. Expands cache template variables using cfg.Env (if provided)
-//  3. Validates all cache configurations
-//  4. Returns a ready-to-use cache client
+// The function performs the following steps:
+//  1. Validates the configuration (Client must be provided)
+//  2. Sets defaults for Format (zip) and Platform (runtime.GOOS/runtime.GOARCH)
+//  3. Expands cache templates using cfg.Env if provided, otherwise uses OS environment
+//  4. Validates all expanded cache configurations
+//  5. Returns a ready-to-use cache client
 //
-// Returns an error if configuration is invalid or cache validation fails.
+// The returned Cache client is safe for concurrent use by multiple goroutines.
+//
+// Returns ErrInvalidConfiguration (wrapped) if:
+//   - Template expansion fails
+//   - Cache validation fails (invalid paths, missing required fields, etc.)
+//
+// Example:
+//
+//	client := api.NewClient(ctx, version, endpoint, token)
+//	cacheClient, err := zstash.NewCache(zstash.Config{
+//	    Client:    client,
+//	    BucketURL: "s3://my-bucket",
+//	    Branch:    "main",
+//	    Pipeline:  "my-pipeline",
+//	    Caches: []cache.Cache{
+//	        {ID: "deps", Key: "v1-{{ checksum \"go.mod\" }}", Paths: []string{"vendor"}},
+//	    },
+//	})
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 func NewCache(cfg Config) (*Cache, error) {
 	// Validate required configuration
 	// Note: Client is a struct, so we can't check for nil. It should be created via NewClient.
@@ -76,9 +97,7 @@ func (c *Cache) callProgress(stage string, message string, current int, total in
 	if c.onProgress != nil {
 		// Protect against panics in user-provided callback
 		defer func() {
-			if r := recover(); r != nil {
-				// Log but don't crash - user callbacks shouldn't break the cache client
-			}
+			_ = recover() // Ignore panics - user callbacks shouldn't break the cache client
 		}()
 		c.onProgress(stage, message, current, total)
 	}

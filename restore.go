@@ -15,6 +15,46 @@ import (
 )
 
 // Restore restores a cache from storage by ID.
+//
+// The function performs the following workflow:
+//  1. Validates the cache configuration
+//  2. Checks if the cache exists (tries exact key, then fallback keys)
+//  3. Downloads the cache archive from cloud storage
+//  4. Extracts files to their original paths
+//  5. Cleans up temporary files
+//
+// If no matching cache is found (including fallback keys), the function returns
+// early with CacheRestored=false. This is not an error condition.
+//
+// The operation respects context cancellation and will stop immediately when
+// ctx is cancelled, cleaning up any temporary resources (downloaded archives).
+//
+// Progress callbacks (if configured) are invoked at each stage with the
+// following stages: "validating", "checking_exists", "downloading", "extracting",
+// "complete".
+//
+// Returns RestoreResult with detailed metrics. Check RestoreResult.Error to
+// determine if the operation succeeded. Returns a non-nil error only for
+// critical failures.
+//
+// Use RestoreResult.CacheHit to check if the exact key matched, and
+// RestoreResult.FallbackUsed to check if a fallback key was used.
+//
+// Example:
+//
+//	result, err := cacheClient.Restore(ctx, "node_modules")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	if result.Error != nil {
+//	    log.Printf("Cache restore failed: %v", result.Error)
+//	} else if !result.CacheRestored {
+//	    log.Printf("Cache miss for key: %s", result.Key)
+//	} else if result.FallbackUsed {
+//	    log.Printf("Restored from fallback key: %s", result.Key)
+//	} else {
+//	    log.Printf("Cache hit: %s (%.2f MB)", result.Key, float64(result.Archive.Size)/(1024*1024))
+//	}
 func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, error) {
 	startTime := time.Now()
 	result := RestoreResult{
@@ -111,7 +151,41 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	return result, nil
 }
 
-// RestoreAll restores all caches configured in this cache client.
+// RestoreAll restores all caches configured in this cache client concurrently.
+//
+// The function launches a goroutine for each cache and restores them in parallel.
+// This is more efficient than calling Restore sequentially for multiple caches.
+//
+// Individual cache failures are captured in each RestoreResult.Error field.
+// Cache misses (no matching key or fallbacks) are not considered errors - check
+// RestoreResult.CacheRestored to determine if a cache was actually restored.
+//
+// The operation respects context cancellation. If ctx is cancelled, all
+// in-progress restore operations will be stopped.
+//
+// Returns a map where keys are cache IDs and values are RestoreResults.
+// Always check each RestoreResult.Error to determine if that specific cache
+// operation succeeded.
+//
+// Example:
+//
+//	results, err := cacheClient.RestoreAll(ctx)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	hits, misses := 0, 0
+//	for cacheID, result := range results {
+//	    if result.Error != nil {
+//	        log.Printf("Failed to restore %s: %v", cacheID, result.Error)
+//	    } else if result.CacheRestored {
+//	        hits++
+//	        log.Printf("Restored %s: %s", cacheID, result.Key)
+//	    } else {
+//	        misses++
+//	        log.Printf("Cache miss %s", cacheID)
+//	    }
+//	}
+//	log.Printf("Restore complete: %d hits, %d misses", hits, misses)
 func (c *Cache) RestoreAll(ctx context.Context) (map[string]RestoreResult, error) {
 	results := make(map[string]RestoreResult)
 	var mu sync.Mutex

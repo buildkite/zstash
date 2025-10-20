@@ -64,9 +64,6 @@ func main() {
 		_ = tp.Shutdown(ctx)
 	}()
 
-	ctx, span := trace.Start(ctx, "zstash")
-	defer span.End()
-
 	// create a http client
 	client := api.NewClient(ctx, version, cli.Endpoint, cli.Token)
 
@@ -81,7 +78,7 @@ func main() {
 		Caches:       cli.Caches,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create cache client")
+		log.Fatal().Err(err).Msg("failed to create cache client") //nolint:gocritic // span.End() called manually above
 	}
 
 	printer := console.NewPrinter(os.Stderr)
@@ -93,7 +90,6 @@ func main() {
 	}
 
 	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, CacheClient: cacheClient, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
-	span.RecordError(err)
 	cmd.FatalIfErrorf(err)
 
 	printer.Info("✅", "%s completed successfully in %s", cmd.Command(), time.Since(start).String())

@@ -13,6 +13,41 @@ import (
 )
 
 // Save saves a cache to storage by ID.
+//
+// The function performs the following workflow:
+//  1. Validates the cache configuration and paths exist
+//  2. Checks if the cache already exists (early return if yes)
+//  3. Builds an archive of the cache paths
+//  4. Creates a cache entry in the Buildkite API
+//  5. Uploads the archive to cloud storage
+//  6. Commits the cache entry
+//
+// If the cache already exists, no upload is performed and the function returns
+// early with CacheCreated=false and Transfer=nil.
+//
+// The operation respects context cancellation and will stop immediately when
+// ctx is cancelled, cleaning up any temporary resources.
+//
+// Progress callbacks (if configured) are invoked at each stage with the
+// following stages: "validating", "checking_exists", "fetching_registry",
+// "building_archive", "creating_entry", "uploading", "committing", "complete".
+//
+// Returns SaveResult with detailed metrics. Check SaveResult.Error to determine
+// if the operation succeeded. Returns a non-nil error only for critical failures.
+//
+// Example:
+//
+//	result, err := cacheClient.Save(ctx, "node_modules")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	if result.Error != nil {
+//	    log.Printf("Cache save failed: %v", result.Error)
+//	} else if !result.CacheCreated {
+//	    log.Printf("Cache already exists for key: %s", result.Key)
+//	} else {
+//	    log.Printf("Cache saved: %s (%.2f MB)", result.Key, float64(result.Archive.Size)/(1024*1024))
+//	}
 func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	startTime := time.Now()
 	result := SaveResult{
@@ -160,7 +195,36 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	return result, nil
 }
 
-// SaveAll saves all caches configured in this cache client.
+// SaveAll saves all caches configured in this cache client concurrently.
+//
+// The function launches a goroutine for each cache and saves them in parallel.
+// This is more efficient than calling Save sequentially for multiple caches.
+//
+// Individual cache failures are captured in each SaveResult.Error field.
+// The function returns a map of cache ID to SaveResult for all caches.
+//
+// The operation respects context cancellation. If ctx is cancelled, all
+// in-progress save operations will be stopped.
+//
+// Returns a map where keys are cache IDs and values are SaveResults.
+// Always check each SaveResult.Error to determine if that specific cache
+// operation succeeded.
+//
+// Example:
+//
+//	results, err := cacheClient.SaveAll(ctx)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	for cacheID, result := range results {
+//	    if result.Error != nil {
+//	        log.Printf("Failed to save %s: %v", cacheID, result.Error)
+//	    } else if result.CacheCreated {
+//	        log.Printf("Saved %s: %s", cacheID, result.Key)
+//	    } else {
+//	        log.Printf("Already exists %s: %s", cacheID, result.Key)
+//	    }
+//	}
 func (c *Cache) SaveAll(ctx context.Context) (map[string]SaveResult, error) {
 	results := make(map[string]SaveResult)
 	var mu sync.Mutex

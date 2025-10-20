@@ -94,6 +94,10 @@ key: "{{ checksum "**/*.{yml,yaml}" }}"
 key: "{{ checksum "package.json" "**/yarn.lock" "src/**/*.{js,ts}" }}"
 ```
 
+# Using as a Library
+
+zstash can be used as a Go library in your applications. See the [API documentation on pkg.go.dev](https://pkg.go.dev/github.com/buildkite/zstash) for details.
+
 # Verification
 
 To verify the cache and restore worked you can use diff.

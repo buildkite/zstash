@@ -74,10 +74,6 @@ func getAgent() map[string]string {
 	}
 }
 
-func getEnv(key string) string {
-	return getEnvWithMap(nil)(key)
-}
-
 func getEnvWithMap(envMap map[string]string) func(string) string {
 	return func(key string) string {
 		log.Info().Str("key", key).Msg("getEnv")

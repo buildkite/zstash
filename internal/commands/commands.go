@@ -4,7 +4,6 @@ import (
 	"math"
 
 	"github.com/buildkite/zstash/api"
-	"github.com/buildkite/zstash/archive"
 	"github.com/buildkite/zstash/cache"
 	"github.com/buildkite/zstash/internal/console"
 )
@@ -25,14 +24,6 @@ type Globals struct {
 	Printer     *console.Printer
 	Caches      []cache.Cache
 	Common      CommonFlags
-}
-
-// calculate the compression ratio
-func compressionRatio(archiveInfo *archive.ArchiveInfo) float64 {
-	if archiveInfo.Size == 0 {
-		return 0.0
-	}
-	return float64(archiveInfo.WrittenBytes) / float64(archiveInfo.Size)
 }
 
 // Int64ToUint64 converts an int64 to uint64, handling negative values and max int64
