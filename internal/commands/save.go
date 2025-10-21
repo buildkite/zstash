@@ -82,12 +82,6 @@ func (cmd *SaveCmd) saveCache(ctx context.Context, cacheID string, cacheClient *
 		return trace.NewError(span, "failed to save cache: %w", err)
 	}
 
-	// Check for result error
-	if result.Error != nil {
-		globals.Printer.Error("❌", "Cache save failed for ID %s: %s", cacheID, result.Error)
-		return result.Error
-	}
-
 	// Handle cache already exists
 	if !result.CacheCreated {
 		globals.Printer.Success("✅", "Cache already exists for key: %s", result.Key)

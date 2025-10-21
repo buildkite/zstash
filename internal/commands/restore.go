@@ -85,12 +85,6 @@ func (cmd *RestoreCmd) restoreCache(ctx context.Context, cacheID string, cacheCl
 		return trace.NewError(span, "failed to restore cache: %w", err)
 	}
 
-	// Check for result error
-	if result.Error != nil {
-		globals.Printer.Error("❌", "Cache restore failed for ID %s: %s", cacheID, result.Error)
-		return result.Error
-	}
-
 	// Handle cache miss
 	if !result.CacheRestored {
 		globals.Printer.Warn("💨", "Cache miss for key: %s", result.Key)

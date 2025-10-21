@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/buildkite/zstash/api"
@@ -32,18 +31,15 @@ import (
 // following stages: "validating", "checking_exists", "fetching_registry",
 // "building_archive", "creating_entry", "uploading", "committing", "complete".
 //
-// Returns SaveResult with detailed metrics. Check SaveResult.Error to determine
-// if the operation succeeded. Returns a non-nil error only for critical failures.
+// Returns SaveResult with detailed metrics, or an error if the operation failed.
 //
 // Example:
 //
 //	result, err := cacheClient.Save(ctx, "node_modules")
 //	if err != nil {
-//	    log.Fatal(err)
+//	    log.Fatalf("Cache save failed: %v", err)
 //	}
-//	if result.Error != nil {
-//	    log.Printf("Cache save failed: %v", result.Error)
-//	} else if !result.CacheCreated {
+//	if !result.CacheCreated {
 //	    log.Printf("Cache already exists for key: %s", result.Key)
 //	} else {
 //	    log.Printf("Cache saved: %s (%.2f MB)", result.Key, float64(result.Archive.Size)/(1024*1024))
@@ -57,7 +53,6 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Find the cache configuration
 	cacheConfig, err := c.findCache(cacheID)
 	if err != nil {
-		result.Error = err
 		return result, err
 	}
 
@@ -72,8 +67,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 
 	// Validate cache paths exist
 	if err := checkPathsExist(cacheConfig.Paths); err != nil {
-		result.Error = fmt.Errorf("invalid cache paths: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("invalid cache paths: %w", err)
 	}
 
 	c.callProgress("checking_exists", "Checking if cache already exists", 0, 0)
@@ -84,8 +78,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		Branch: c.branch,
 	})
 	if err != nil {
-		result.Error = fmt.Errorf("failed to check cache existence: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to check cache existence: %w", err)
 	}
 
 	if exists {
@@ -101,14 +94,12 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Get cache registry information
 	registryResp, err := c.client.CacheRegistry(ctx, result.Registry)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to get cache registry: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to get cache registry: %w", err)
 	}
 
 	// Validate cache store configuration
 	if err := validateCacheStore(registryResp.Store, c.bucketURL); err != nil {
-		result.Error = fmt.Errorf("invalid cache store configuration: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("invalid cache store configuration: %w", err)
 	}
 
 	c.callProgress("building_archive", "Building archive", 0, len(cacheConfig.Paths))
@@ -116,8 +107,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Build archive
 	archiveInfo, err := archive.BuildArchive(ctx, cacheConfig.Paths, cacheConfig.Key)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to build archive: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to build archive: %w", err)
 	}
 
 	// Populate archive metrics
@@ -148,8 +138,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		Store:        registryResp.Store,
 	})
 	if err != nil {
-		result.Error = fmt.Errorf("failed to create cache entry: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to create cache entry: %w", err)
 	}
 
 	result.UploadID = createResp.UploadID
@@ -159,14 +148,12 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Upload archive
 	blobStore, err := store.NewBlobStore(ctx, registryResp.Store, c.bucketURL)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to create blob store: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to create blob store: %w", err)
 	}
 
 	transferInfo, err := blobStore.Upload(ctx, archiveInfo.ArchivePath, createResp.StoreObjectName)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to upload cache: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to upload cache: %w", err)
 	}
 
 	// Populate transfer metrics
@@ -184,8 +171,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		UploadID: createResp.UploadID,
 	})
 	if err != nil {
-		result.Error = fmt.Errorf("failed to commit cache: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to commit cache: %w", err)
 	}
 
 	result.CacheCreated = true
@@ -193,64 +179,6 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	c.callProgress("complete", "Cache saved successfully", 0, 0)
 
 	return result, nil
-}
-
-// SaveAll saves all caches configured in this cache client concurrently.
-//
-// The function launches a goroutine for each cache and saves them in parallel.
-// This is more efficient than calling Save sequentially for multiple caches.
-//
-// Individual cache failures are captured in each SaveResult.Error field.
-// The function returns a map of cache ID to SaveResult for all caches.
-//
-// The operation respects context cancellation. If ctx is cancelled, all
-// in-progress save operations will be stopped.
-//
-// Returns a map where keys are cache IDs and values are SaveResults.
-// Always check each SaveResult.Error to determine if that specific cache
-// operation succeeded.
-//
-// Example:
-//
-//	results, err := cacheClient.SaveAll(ctx)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	for cacheID, result := range results {
-//	    if result.Error != nil {
-//	        log.Printf("Failed to save %s: %v", cacheID, result.Error)
-//	    } else if result.CacheCreated {
-//	        log.Printf("Saved %s: %s", cacheID, result.Key)
-//	    } else {
-//	        log.Printf("Already exists %s: %s", cacheID, result.Key)
-//	    }
-//	}
-func (c *Cache) SaveAll(ctx context.Context) (map[string]SaveResult, error) {
-	results := make(map[string]SaveResult)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	for _, cacheConfig := range c.caches {
-		wg.Add(1)
-		go func(cacheID string) {
-			defer wg.Done()
-
-			result, err := c.Save(ctx, cacheID)
-			if err != nil {
-				// Critical failure
-				result = SaveResult{
-					Error: err,
-				}
-			}
-
-			mu.Lock()
-			results[cacheID] = result
-			mu.Unlock()
-		}(cacheConfig.ID)
-	}
-
-	wg.Wait()
-	return results, nil
 }
 
 // checkPathsExist validates that all paths exist on the filesystem

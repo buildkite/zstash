@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/buildkite/zstash/api"
@@ -33,9 +32,7 @@ import (
 // following stages: "validating", "checking_exists", "downloading", "extracting",
 // "complete".
 //
-// Returns RestoreResult with detailed metrics. Check RestoreResult.Error to
-// determine if the operation succeeded. Returns a non-nil error only for
-// critical failures.
+// Returns RestoreResult with detailed metrics, or an error if the operation failed.
 //
 // Use RestoreResult.CacheHit to check if the exact key matched, and
 // RestoreResult.FallbackUsed to check if a fallback key was used.
@@ -44,11 +41,9 @@ import (
 //
 //	result, err := cacheClient.Restore(ctx, "node_modules")
 //	if err != nil {
-//	    log.Fatal(err)
+//	    log.Fatalf("Cache restore failed: %v", err)
 //	}
-//	if result.Error != nil {
-//	    log.Printf("Cache restore failed: %v", result.Error)
-//	} else if !result.CacheRestored {
+//	if !result.CacheRestored {
 //	    log.Printf("Cache miss for key: %s", result.Key)
 //	} else if result.FallbackUsed {
 //	    log.Printf("Restored from fallback key: %s", result.Key)
@@ -64,7 +59,6 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	// Find the cache configuration
 	cacheConfig, err := c.findCache(cacheID)
 	if err != nil {
-		result.Error = err
 		return result, err
 	}
 
@@ -86,8 +80,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		FallbackKeys: strings.Join(cacheConfig.FallbackKeys, ","),
 	})
 	if err != nil {
-		result.Error = fmt.Errorf("failed to retrieve cache: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to retrieve cache: %w", err)
 	}
 
 	if !exists {
@@ -110,8 +103,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	// Download cache
 	tmpDir, archiveFile, transferInfo, err := c.downloadCache(ctx, retrieveResp, c.bucketURL)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to download cache: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to download cache: %w", err)
 	}
 	defer func() {
 		_ = os.RemoveAll(tmpDir)
@@ -130,8 +122,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	// Extract files
 	archiveInfo, err := c.extractCache(ctx, archiveFile, transferInfo.BytesTransferred, cacheConfig.Paths)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to extract cache: %w", err)
-		return result, result.Error
+		return result, fmt.Errorf("failed to extract cache: %w", err)
 	}
 
 	// Populate archive metrics
@@ -149,69 +140,6 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	c.callProgress("complete", "Cache restored successfully", 0, 0)
 
 	return result, nil
-}
-
-// RestoreAll restores all caches configured in this cache client concurrently.
-//
-// The function launches a goroutine for each cache and restores them in parallel.
-// This is more efficient than calling Restore sequentially for multiple caches.
-//
-// Individual cache failures are captured in each RestoreResult.Error field.
-// Cache misses (no matching key or fallbacks) are not considered errors - check
-// RestoreResult.CacheRestored to determine if a cache was actually restored.
-//
-// The operation respects context cancellation. If ctx is cancelled, all
-// in-progress restore operations will be stopped.
-//
-// Returns a map where keys are cache IDs and values are RestoreResults.
-// Always check each RestoreResult.Error to determine if that specific cache
-// operation succeeded.
-//
-// Example:
-//
-//	results, err := cacheClient.RestoreAll(ctx)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	hits, misses := 0, 0
-//	for cacheID, result := range results {
-//	    if result.Error != nil {
-//	        log.Printf("Failed to restore %s: %v", cacheID, result.Error)
-//	    } else if result.CacheRestored {
-//	        hits++
-//	        log.Printf("Restored %s: %s", cacheID, result.Key)
-//	    } else {
-//	        misses++
-//	        log.Printf("Cache miss %s", cacheID)
-//	    }
-//	}
-//	log.Printf("Restore complete: %d hits, %d misses", hits, misses)
-func (c *Cache) RestoreAll(ctx context.Context) (map[string]RestoreResult, error) {
-	results := make(map[string]RestoreResult)
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	for _, cacheConfig := range c.caches {
-		wg.Add(1)
-		go func(cacheID string) {
-			defer wg.Done()
-
-			result, err := c.Restore(ctx, cacheID)
-			if err != nil {
-				// Critical failure
-				result = RestoreResult{
-					Error: err,
-				}
-			}
-
-			mu.Lock()
-			results[cacheID] = result
-			mu.Unlock()
-		}(cacheConfig.ID)
-	}
-
-	wg.Wait()
-	return results, nil
 }
 
 // downloadCache downloads a cache archive from storage

@@ -53,8 +53,8 @@ var (
 // A Cache client is created once with configuration and can be used for multiple
 // operations. The client is safe for concurrent use by multiple goroutines.
 //
-// All cache operations (Save, Restore, SaveAll, RestoreAll) respect context
-// cancellation and will clean up resources when the context is cancelled.
+// All cache operations respect context cancellation and will clean up resources
+// when the context is cancelled.
 type Cache struct {
 	client       api.Client
 	bucketURL    string
@@ -144,7 +144,7 @@ type ProgressCallback func(stage string, message string, current int, total int)
 // NewCache creates and validates a new cache client.
 // Implementation is in service.go
 
-// Save, SaveAll, Restore, and RestoreAll methods are implemented in save.go and restore.go
+// Save and Restore methods are implemented in save.go and restore.go
 
 // ListCaches returns all cache configurations managed by this cache client.
 //
@@ -169,14 +169,9 @@ func (c *Cache) GetCache(id string) (cache.Cache, error) {
 
 // SaveResult contains detailed information about a cache save operation.
 //
-// Check the Error field first to determine if the operation succeeded.
-// If Error is nil, examine CacheCreated to see if a new cache was uploaded
-// or if the cache already existed.
+// Check CacheCreated to see if a new cache was uploaded or if the cache
+// already existed.
 type SaveResult struct {
-	// Error is any error that occurred during this specific cache operation.
-	// If nil, the operation succeeded.
-	Error error
-
 	// CacheCreated indicates whether a new cache entry was created.
 	// false means the cache already existed and no upload occurred.
 	// When false, Transfer will be nil since no upload was performed.
@@ -208,14 +203,9 @@ type SaveResult struct {
 
 // RestoreResult contains detailed information about a cache restore operation.
 //
-// Check the Error field first to determine if the operation succeeded.
-// If Error is nil, examine CacheRestored to see if a cache was found.
+// Check CacheRestored to see if a cache was found.
 // Use CacheHit and FallbackUsed to determine if the exact key matched.
 type RestoreResult struct {
-	// Error is any error that occurred during this specific cache operation.
-	// If nil, the operation succeeded.
-	Error error
-
 	// CacheHit indicates whether the exact cache key was found.
 	// false means either no cache found, or a fallback key was used.
 	// When false, check CacheRestored to distinguish between cache miss
