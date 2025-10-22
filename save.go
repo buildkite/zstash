@@ -9,6 +9,9 @@ import (
 	"github.com/buildkite/zstash/api"
 	"github.com/buildkite/zstash/archive"
 	"github.com/buildkite/zstash/store"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // Save saves a cache to storage by ID.
@@ -45,6 +48,19 @@ import (
 //	    log.Printf("Cache saved: %s (%.2f MB)", result.Key, float64(result.Archive.Size)/(1024*1024))
 //	}
 func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
+	tracer := otel.Tracer("github.com/buildkite/zstash")
+	ctx, span := tracer.Start(ctx, "Cache.Save")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("cache.id", cacheID),
+		attribute.String("cache.branch", c.branch),
+		attribute.String("cache.pipeline", c.pipeline),
+		attribute.String("cache.organization", c.organization),
+		attribute.String("cache.platform", c.platform),
+		attribute.String("cache.format", c.format),
+	)
+
 	startTime := time.Now()
 	result := SaveResult{
 		Registry: "~", // default registry
@@ -53,6 +69,8 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Find the cache configuration
 	cacheConfig, err := c.findCache(cacheID)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to find cache configuration")
 		return result, err
 	}
 
@@ -63,10 +81,19 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 
 	result.Key = cacheConfig.Key
 
+	span.SetAttributes(
+		attribute.String("cache.key", cacheConfig.Key),
+		attribute.String("cache.registry", result.Registry),
+		attribute.Int("cache.paths_count", len(cacheConfig.Paths)),
+		attribute.Int("cache.fallback_keys_count", len(cacheConfig.FallbackKeys)),
+	)
+
 	c.callProgress("validating", "Validating cache configuration", 0, 0)
 
 	// Validate cache paths exist
 	if err := checkPathsExist(cacheConfig.Paths); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid cache paths")
 		return result, fmt.Errorf("invalid cache paths: %w", err)
 	}
 
@@ -78,6 +105,8 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		Branch: c.branch,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to check cache existence")
 		return result, fmt.Errorf("failed to check cache existence: %w", err)
 	}
 
@@ -85,6 +114,12 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		// Cache already exists, no need to upload
 		result.CacheCreated = false
 		result.TotalDuration = time.Since(startTime)
+		span.SetAttributes(
+			attribute.Bool("cache.created", false),
+			attribute.Bool("cache.already_exists", true),
+			attribute.Int64("cache.duration_ms", result.TotalDuration.Milliseconds()),
+		)
+		span.SetStatus(codes.Ok, "cache already exists")
 		c.callProgress("complete", "Cache already exists", 0, 0)
 		return result, nil
 	}
@@ -94,11 +129,19 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Get cache registry information
 	registryResp, err := c.client.CacheRegistry(ctx, result.Registry)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to get cache registry")
 		return result, fmt.Errorf("failed to get cache registry: %w", err)
 	}
 
+	span.SetAttributes(
+		attribute.String("cache.store_type", registryResp.Store),
+	)
+
 	// Validate cache store configuration
 	if err := validateCacheStore(registryResp.Store, c.bucketURL); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid cache store configuration")
 		return result, fmt.Errorf("invalid cache store configuration: %w", err)
 	}
 
@@ -107,6 +150,8 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	// Build archive
 	archiveInfo, err := archive.BuildArchive(ctx, cacheConfig.Paths, cacheConfig.Key)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to build archive")
 		return result, fmt.Errorf("failed to build archive: %w", err)
 	}
 
@@ -120,6 +165,14 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		Duration:         archiveInfo.Duration,
 		Paths:            cacheConfig.Paths,
 	}
+
+	span.SetAttributes(
+		attribute.Int64("cache.archive_size_bytes", archiveInfo.Size),
+		attribute.Int64("cache.written_bytes", archiveInfo.WrittenBytes),
+		attribute.Int64("cache.written_entries", archiveInfo.WrittenEntries),
+		attribute.Float64("cache.compression_ratio", result.Archive.CompressionRatio),
+		attribute.String("cache.sha256sum", archiveInfo.Sha256sum),
+	)
 
 	c.callProgress("creating_entry", "Creating cache entry", 0, 0)
 
@@ -138,21 +191,32 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		Store:        registryResp.Store,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create cache entry")
 		return result, fmt.Errorf("failed to create cache entry: %w", err)
 	}
 
 	result.UploadID = createResp.UploadID
+
+	span.SetAttributes(
+		attribute.String("cache.upload_id", createResp.UploadID),
+		attribute.String("cache.object_name", createResp.StoreObjectName),
+	)
 
 	c.callProgress("uploading", "Uploading cache archive", 0, int(archiveInfo.Size))
 
 	// Upload archive
 	blobStore, err := store.NewBlobStore(ctx, registryResp.Store, c.bucketURL)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to create blob store")
 		return result, fmt.Errorf("failed to create blob store: %w", err)
 	}
 
 	transferInfo, err := blobStore.Upload(ctx, archiveInfo.ArchivePath, createResp.StoreObjectName)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to upload cache")
 		return result, fmt.Errorf("failed to upload cache: %w", err)
 	}
 
@@ -164,6 +228,12 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		RequestID:        transferInfo.RequestID,
 	}
 
+	span.SetAttributes(
+		attribute.Int64("cache.transfer_bytes", transferInfo.BytesTransferred),
+		attribute.Float64("cache.transfer_speed_mbps", transferInfo.TransferSpeed),
+		attribute.String("cache.request_id", transferInfo.RequestID),
+	)
+
 	c.callProgress("committing", "Committing cache entry", 0, 0)
 
 	// Commit cache
@@ -171,11 +241,21 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		UploadID: createResp.UploadID,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to commit cache")
 		return result, fmt.Errorf("failed to commit cache: %w", err)
 	}
 
 	result.CacheCreated = true
 	result.TotalDuration = time.Since(startTime)
+
+	// Add final result attributes to span
+	span.SetAttributes(
+		attribute.Bool("cache.created", true),
+		attribute.Int64("cache.duration_ms", result.TotalDuration.Milliseconds()),
+	)
+	span.SetStatus(codes.Ok, "cache saved successfully")
+
 	c.callProgress("complete", "Cache saved successfully", 0, 0)
 
 	return result, nil
