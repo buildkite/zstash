@@ -36,28 +36,3 @@ steps:
             mount-buildkite-agent: true
             progress: plain
 
-  - label: ":terminal: build ({{matrix}})"
-    depends_on: quality-checks
-    matrix:
-      - "darwin"
-      - "linux"
-      - "windows"
-    artifact_paths:
-      - dist/**/*
-    plugins:
-      - docker-compose#v5.10.0:
-          command:
-            - .buildkite/release.sh
-            - release
-            - --clean
-            - --snapshot
-            - --split
-          config: .buildkite/docker-compose.yaml
-          entrypoint: /bin/bash
-          env:
-            - GOOS={{matrix}}
-          mount-buildkite-agent: true
-          run: goreleaser
-          shell: false
-          tty: true
-          progress: plain
