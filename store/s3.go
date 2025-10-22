@@ -39,6 +39,11 @@ func OptionsFromURL(s3url string) (*Options, error) {
 		return nil, fmt.Errorf("failed to parse S3 URL: %w", err)
 	}
 
+	// check the scheme is s3
+	if u.Scheme != "s3" {
+		return nil, fmt.Errorf("invalid S3 URL scheme %q: must be s3", u.Scheme)
+	}
+
 	opts := &Options{
 		Bucket: u.Hostname(),
 		Prefix: strings.Trim(u.Path, "/"),
