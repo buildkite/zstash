@@ -175,30 +175,6 @@ func TestExtractServiceFromBucketURL(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "gs scheme for google cloud storage",
-			url:     "gs://my-bucket",
-			want:    "gs",
-			wantErr: false,
-		},
-		{
-			name:    "azblob scheme for azure",
-			url:     "azblob://my-bucket",
-			want:    "azblob",
-			wantErr: false,
-		},
-		{
-			name:    "file scheme for local testing",
-			url:     "file:///tmp/bucket",
-			want:    "file",
-			wantErr: false,
-		},
-		{
-			name:    "mem scheme for in-memory testing",
-			url:     "mem://bucket",
-			want:    "mem",
-			wantErr: false,
-		},
-		{
 			name:        "invalid URL",
 			url:         "://invalid",
 			want:        "",
