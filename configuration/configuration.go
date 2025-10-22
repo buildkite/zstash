@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/buildkite/zstash/internal/cache"
+	"github.com/buildkite/zstash/cache"
 	"github.com/buildkite/zstash/internal/key"
 )
 
@@ -23,8 +23,29 @@ Takes a list of cache configurations and expands them into a list of cache of re
 * Expands cache.FallbackKeys using templatable arguments (such as id, agent.os, agent.arch, env, checksum etc)
 
 * Expands cache.Paths using templatable arguments (such as id, agent.os, agent.arch, env, checksum etc)
+
+Uses the OS environment variables for template expansion.
 */
 func ExpandCacheConfiguration(caches []cache.Cache) ([]cache.Cache, error) {
+	return expandCacheConfiguration(caches, nil)
+}
+
+/*
+ExpandCacheConfigurationWithEnv expands cache configurations using a provided environment map
+instead of reading from the OS environment. This is useful for library usage where the environment
+is controlled programmatically.
+
+Parameters:
+  - caches: List of cache configurations to expand
+  - env: Map of environment variables to use for template expansion
+
+Returns the expanded cache configurations or an error if expansion fails.
+*/
+func ExpandCacheConfigurationWithEnv(caches []cache.Cache, env map[string]string) ([]cache.Cache, error) {
+	return expandCacheConfiguration(caches, env)
+}
+
+func expandCacheConfiguration(caches []cache.Cache, env map[string]string) ([]cache.Cache, error) {
 	templatesMap, err := loadTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load templates: %w", err)
@@ -40,19 +61,19 @@ func ExpandCacheConfiguration(caches []cache.Cache) ([]cache.Cache, error) {
 		}
 
 		// Replace cache.Key with the templatable arguments
-		cache.Key, err = key.Template(cache.ID, cache.Key)
+		cache.Key, err = key.TemplateWithEnv(cache.ID, cache.Key, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand key: %w", err)
 		}
 
 		// Replace cache.FallbackKeys with the templatable arguments (such as id, agent.os, agent.arch, env, checksum etc)
-		cache.FallbackKeys, err = expandStrings(cache.ID, cache.FallbackKeys)
+		cache.FallbackKeys, err = expandStringsWithEnv(cache.ID, cache.FallbackKeys, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand fallback keys: %w", err)
 		}
 
 		// Replace cache.Paths with the templatable arguments (such as id, agent.os, agent.arch, env, checksum etc)
-		cache.Paths, err = expandStrings(cache.ID, cache.Paths)
+		cache.Paths, err = expandStringsWithEnv(cache.ID, cache.Paths, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand paths: %w", err)
 		}
@@ -215,8 +236,9 @@ func augmentTemplateWithCache(templatesMap map[string]cache.Cache, cache cache.C
 
 /*
 Expands an array of strings with templatable arguments (such as id, agent.os, agent.arch, env, checksum etc)
+Uses the provided environment map if not nil, otherwise uses OS environment.
 */
-func expandStrings(id string, stringsArray []string) ([]string, error) {
+func expandStringsWithEnv(id string, stringsArray []string, env map[string]string) ([]string, error) {
 	expandedStrings := make([]string, len(stringsArray))
 
 	for n, stringTemplate := range stringsArray {
@@ -224,7 +246,7 @@ func expandStrings(id string, stringsArray []string) ([]string, error) {
 		// trim quotes and whitespace
 		stringTemplate = strings.Trim(stringTemplate, "\"' \t")
 
-		expandedString, err := key.Template(id, stringTemplate)
+		expandedString, err := key.TemplateWithEnv(id, stringTemplate, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to template key: %w", err)
 		}

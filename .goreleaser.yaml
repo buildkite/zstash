@@ -16,7 +16,10 @@ before:
     - go generate ./...
 
 builds:
-  - env:
+  - id: zstash
+    binary: zstash
+    main: ./cmd/zstash/main.go
+    env:
       - CGO_ENABLED=0
     goos:
       - linux

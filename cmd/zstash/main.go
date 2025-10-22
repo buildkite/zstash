@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
-	"github.com/buildkite/zstash/internal/api"
-	"github.com/buildkite/zstash/internal/cache"
+	"github.com/buildkite/zstash"
+	"github.com/buildkite/zstash/api"
+	"github.com/buildkite/zstash/cache"
 	"github.com/buildkite/zstash/internal/commands"
 	"github.com/buildkite/zstash/internal/console"
 	"github.com/buildkite/zstash/internal/trace"
@@ -41,14 +43,19 @@ var (
 func main() {
 	ctx := context.Background()
 
-	start := time.Now()
-
 	// Overloads `cli` with configuration file values.
 	cmd := kong.Parse(&cli,
 		kong.Vars{"version": version, "default_config_path": defaultConfigPath},
 		kong.NamedMapper("yamlfile", kongyaml.YAMLFileMapper),
 		kong.Configuration(kongyaml.Loader),
 		kong.BindTo(ctx, (*context.Context)(nil)))
+
+	err := Run(ctx, cmd)
+	cmd.FatalIfErrorf(err)
+}
+
+func Run(ctx context.Context, cmd *kong.Context) error {
+	start := time.Now()
 
 	// check the token is set
 	if cli.Token == "" {
@@ -57,17 +64,28 @@ func main() {
 
 	tp, err := trace.NewProvider(ctx, cli.TraceExporter, "github.com/buildkite/zstash", version)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create trace provider")
+		return fmt.Errorf("failed to create trace provider: %w", err)
 	}
 	defer func() {
 		_ = tp.Shutdown(ctx)
 	}()
 
-	ctx, span := trace.Start(ctx, "zstash")
-	defer span.End()
-
 	// create a http client
 	client := api.NewClient(ctx, version, cli.Endpoint, cli.Token)
+
+	// create cache client
+	cacheClient, err := zstash.NewCache(zstash.Config{
+		Client:       client,
+		BucketURL:    cli.BucketURL,
+		Format:       cli.Format,
+		Branch:       cli.Branch,
+		Pipeline:     cli.Pipeline,
+		Organization: cli.Organization,
+		Caches:       cli.Caches,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create cache client: %w", err)
+	}
 
 	printer := console.NewPrinter(os.Stderr)
 
@@ -77,9 +95,12 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).Level(zerolog.ErrorLevel)
 	}
 
-	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
-	span.RecordError(err)
-	cmd.FatalIfErrorf(err)
+	err = cmd.Run(&commands.Globals{Debug: cli.Debug, Version: version, Client: client, CacheClient: cacheClient, Printer: printer, Common: cli.CommonFlags, Caches: cli.Caches})
+	if err != nil {
+		return fmt.Errorf("command %s failed: %w", cmd.Command(), err)
+	}
 
 	printer.Info("✅", "%s completed successfully in %s", cmd.Command(), time.Since(start).String())
+
+	return nil
 }
