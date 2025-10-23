@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path"
@@ -14,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/buildkite/zstash/internal/trace"
-	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -83,12 +83,11 @@ func NewS3Blob(ctx context.Context, s3url string) (*S3Blob, error) {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	log.Debug().
-		Str("bucket", opts.Bucket).
-		Str("region", opts.Region).
-		Str("prefix", opts.Prefix).
-		Str("endpoint", opts.S3Endpoint).
-		Msg("configured S3 bucket")
+	slog.Debug("configured S3 bucket",
+		"bucket", opts.Bucket,
+		"region", opts.Region,
+		"prefix", opts.Prefix,
+		"endpoint", opts.S3Endpoint)
 
 	// Create a new S3 client
 	client := s3.NewFromConfig(cfg,

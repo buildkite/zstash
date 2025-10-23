@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,7 +13,6 @@ import (
 	"strings"
 
 	"drjosh.dev/zzglob"
-	"github.com/rs/zerolog/log"
 )
 
 var ignoreFiles = []string{
@@ -57,7 +57,7 @@ func TemplateWithEnv(id, key string, env map[string]string) (string, error) {
 
 func getID(id string) func() string {
 	return func() string {
-		log.Debug().Str("id", id).Msg("getID")
+		slog.Debug("getID", "id", id)
 		if id == "" {
 			return ""
 		}
@@ -76,7 +76,7 @@ func getAgent() map[string]string {
 
 func getEnvWithMap(envMap map[string]string) func(string) string {
 	return func(key string) string {
-		log.Info().Str("key", key).Msg("getEnv")
+		slog.Info("getEnv", "key", key)
 
 		var env string
 		if envMap != nil {
@@ -100,7 +100,7 @@ func getEnvWithMap(envMap map[string]string) func(string) string {
 
 func checksumPaths() func(files ...string) string {
 	return func(patterns ...string) string {
-		log.Info().Strs("files", patterns).Msg("checksumPaths")
+		slog.Info("checksumPaths", "files", patterns)
 
 		if len(patterns) == 0 {
 			return ""
@@ -109,27 +109,27 @@ func checksumPaths() func(files ...string) string {
 		// Resolve all patterns to actual file paths
 		files, err := resolveFiles(patterns)
 		if err != nil {
-			log.Error().Err(err).Msg("error resolving files")
+			slog.Error("error resolving files", "error", err)
 			return ""
 		}
 
 		if len(files) == 0 {
-			log.Warn().Strs("patterns", patterns).Msg("no files found for patterns")
+			slog.Warn("no files found for patterns", "patterns", patterns)
 			return ""
 		}
 
-		log.Info().Int("files", len(files)).Msg("resolved files for checksumming")
+		slog.Info("resolved files for checksumming", "files", len(files))
 
 		// Calculate individual checksums and combine (for backward compatibility)
 		var sums []string
 		for _, file := range files {
 			data, err := os.ReadFile(file)
 			if err != nil {
-				log.Error().Err(err).Str("file", file).Msg("error reading file")
+				slog.Error("error reading file", "error", err, "file", file)
 				return ""
 			}
 			sums = append(sums, checksum(data))
-			log.Debug().Str("file", file).Msg("checksummed file")
+			slog.Debug("checksummed file", "file", file)
 		}
 
 		// Combine the sums into a single string and hash (matches original behavior)
@@ -146,12 +146,12 @@ func resolveFiles(patterns []string) ([]string, error) {
 	var result []string
 
 	for _, patternStr := range patterns {
-		log.Debug().Str("pattern", patternStr).Msg("processing glob pattern")
+		slog.Debug("processing glob pattern", "pattern", patternStr)
 
 		// Parse the pattern using zzglob
 		pattern, err := zzglob.Parse(patternStr)
 		if err != nil {
-			log.Error().Err(err).Str("pattern", patternStr).Msg("glob pattern parse failed")
+			slog.Error("glob pattern parse failed", "error", err, "pattern", patternStr)
 			return nil, err
 		}
 
@@ -174,7 +174,7 @@ func resolveFiles(patterns []string) ([]string, error) {
 			for _, ignore := range ignoreFiles {
 				if strings.HasSuffix(match, ignore) {
 					ignored = true
-					log.Debug().Str("path", match).Str("ignore", ignore).Msg("ignoring file")
+					slog.Debug("ignoring file", "path", match, "ignore", ignore)
 					break
 				}
 			}
@@ -184,7 +184,7 @@ func resolveFiles(patterns []string) ([]string, error) {
 				if _, exists := seen[match]; !exists {
 					seen[match] = struct{}{}
 					result = append(result, match)
-					log.Debug().Str("path", match).Str("pattern", patternStr).Msg("file matched")
+					slog.Debug("file matched", "path", match, "pattern", patternStr)
 				}
 			}
 
@@ -192,14 +192,14 @@ func resolveFiles(patterns []string) ([]string, error) {
 		})
 
 		if err != nil {
-			log.Error().Err(err).Str("pattern", patternStr).Msg("glob pattern failed")
+			slog.Error("glob pattern failed", "error", err, "pattern", patternStr)
 			return nil, err
 		}
 	}
 
 	// Sort for deterministic output
 	sort.Strings(result)
-	log.Debug().Int("count", len(result)).Msg("files resolved")
+	slog.Debug("files resolved", "count", len(result))
 
 	return result, nil
 }

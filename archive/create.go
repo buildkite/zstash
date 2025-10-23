@@ -3,13 +3,13 @@ package archive
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/klauspost/compress/zstd"
-	"github.com/rs/zerolog/log"
 	"github.com/wolfeidau/quickzip"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -56,7 +56,7 @@ func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo
 		_, err := os.Stat(mapping.ResolvedPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				log.Warn().Str("path", mapping.ResolvedPath).Msg("file does not exist")
+				slog.Warn("file does not exist", "path", mapping.ResolvedPath)
 				continue
 			}
 			return nil, fmt.Errorf("failed to stat file: %w", err)
@@ -76,7 +76,7 @@ func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo
 			return nil, fmt.Errorf("failed to walk path: %s with error: %w", mapping.ResolvedPath, err)
 		}
 
-		log.Info().Str("chroot", mapping.Chroot).Str("path", mapping.ResolvedPath).Msg("chroot")
+		slog.Info("chroot", "chroot", mapping.Chroot, "path", mapping.ResolvedPath)
 
 		err = arc.Archive(context.Background(), mapping.Chroot, files)
 		if err != nil {
