@@ -67,9 +67,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	)
 
 	startTime := time.Now()
-	result := RestoreResult{
-		Registry: "~", // default registry
-	}
+	result := RestoreResult{}
 
 	// Find the cache configuration
 	cacheConfig, err := c.findCache(cacheID)
@@ -79,9 +77,11 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		return result, err
 	}
 
-	// Set registry (default to "~" if not specified)
+	// Set registry: use cache-specific registry if provided, otherwise use client default
 	if cacheConfig.Registry != "" {
 		result.Registry = cacheConfig.Registry
+	} else {
+		result.Registry = c.registry
 	}
 
 	result.Key = cacheConfig.Key

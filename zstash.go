@@ -63,6 +63,7 @@ type Cache struct {
 	pipeline     string
 	organization string
 	platform     string
+	registry     string
 	caches       []cache.Cache
 	onProgress   ProgressCallback
 }
@@ -95,6 +96,11 @@ type Config struct {
 	// Platform is the OS/arch string (e.g., "linux/amd64", "darwin/arm64").
 	// If empty, defaults to runtime.GOOS/runtime.GOARCH.
 	Platform string
+
+	// Registry is the default cache registry to use for all cache operations.
+	// If empty, defaults to "~" (the default registry).
+	// Individual cache configurations can override this by setting their own Registry field.
+	Registry string
 
 	// Env is an optional environment variable map used for cache template expansion.
 	// If nil, OS environment variables are used instead via os.Getenv.
