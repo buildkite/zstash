@@ -335,7 +335,10 @@ func (b *LocalFileBlob) Download(ctx context.Context, key string, destPath strin
 		return nil, fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	_ = os.Remove(destPath)
+	// Remove existing file before rename (required for Windows atomicity)
+	if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to remove existing file: %w", err)
+	}
 
 	if err := os.Rename(tmpDest, destPath); err != nil {
 		return nil, fmt.Errorf("failed to rename temp file: %w", err)
