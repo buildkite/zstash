@@ -24,25 +24,24 @@ const (
 )
 
 // LocalFileBlob implements the Blob interface for local filesystem storage.
-// It stores cache artifacts as files on the local filesystem with accompanying
-// metadata sidecar files. The storage structure directly maps cache keys to
-// file paths under the configured root directory.
+// Cache artifacts are stored as files with accompanying JSON metadata sidecars.
+// Cache keys map directly to file paths under the configured root directory.
 //
 // Storage layout:
 //   - Data files: <root>/<key>
 //   - Metadata files: <root>/<key>.attrs.json
 //
-// This implementation provides:
-//   - Atomic writes via temp file + rename
-//   - Path traversal protection with multi-layer validation
-//   - SHA256 integrity checksums
+// Features:
+//   - Atomic writes using temp files + rename
+//   - Path traversal protection via multi-layer validation
+//   - SHA256 integrity checksums computed during upload
 //   - Last-writer-wins semantics for concurrent updates
 type LocalFileBlob struct {
 	root string // Absolute path to the root storage directory
 }
 
-// FileMetadata contains metadata for cached files stored in the local filesystem.
-// This metadata is persisted as JSON in a sidecar file alongside the data file.
+// FileMetadata contains metadata for cached files.
+// Persisted as compact JSON in a sidecar file alongside each data file.
 type FileMetadata struct {
 	Key       string `json:"key"`              // Original cache key
 	Size      int64  `json:"size"`             // File size in bytes
@@ -112,14 +111,15 @@ func NewLocalFileBlob(ctx context.Context, fileURL string) (*LocalFileBlob, erro
 // The upload process:
 //  1. Validates the source path and cache key
 //  2. Computes SHA256 hash during copy for integrity verification
-//  3. Writes data atomically via temp file + fsync + rename
-//  4. Writes metadata (size, permissions, timestamps, checksum) to sidecar file
-//  5. Fsyncs parent directory for durability (best-effort)
+//  3. Writes data atomically using temp file + fsync + rename
+//  4. Writes metadata (size, permissions, checksum, timestamps) atomically to sidecar file
+//  5. Syncs parent directory for durability (best-effort)
 //
-// On Windows, existing files are removed before rename due to platform limitations.
-// This creates a last-writer-wins semantic for concurrent uploads to the same key.
+// Atomic writes ensure readers never see partial data. On Windows, existing files
+// are removed before rename due to platform limitations, creating last-writer-wins
+// semantics for concurrent uploads to the same key.
 //
-// Returns TransferInfo containing bytes transferred, transfer speed, and duration.
+// Returns TransferInfo with bytes transferred, transfer speed, and duration.
 func (b *LocalFileBlob) Upload(ctx context.Context, srcPath string, key string) (*TransferInfo, error) {
 	_, span := trace.Start(ctx, "LocalFileBlob.Upload")
 	defer span.End()
@@ -270,15 +270,16 @@ func (b *LocalFileBlob) Upload(ctx context.Context, srcPath string, key string) 
 //
 // The download process:
 //  1. Validates the cache key and destination path
-//  2. Reads the cached file from storage
-//  3. Writes to destination atomically via temp file + fsync + rename
-//  4. Attempts to restore original file metadata (mtime, permissions) if available
-//  5. Fsyncs parent directory for durability (best-effort)
+//  2. Reads the cached data file from storage
+//  3. Writes atomically to destination using temp file + fsync + rename
+//  4. Restores original file metadata (mtime) from sidecar if available (best-effort)
+//  5. Syncs parent directory for durability (best-effort)
 //
-// Metadata restoration is best-effort and failures are logged but don't fail the download.
+// Metadata restoration is best-effort; failures are logged but don't fail the download.
+// Atomic writes ensure partial files are never visible at the destination path.
 //
-// Returns TransferInfo containing bytes transferred, transfer speed, and duration.
-// Returns an error if the cache key doesn't exist or if file operations fail.
+// Returns TransferInfo with bytes transferred, transfer speed, and duration.
+// Returns an error if the cache key doesn't exist or file operations fail.
 func (b *LocalFileBlob) Download(ctx context.Context, key string, destPath string) (*TransferInfo, error) {
 	_, span := trace.Start(ctx, "LocalFileBlob.Download")
 	defer span.End()
