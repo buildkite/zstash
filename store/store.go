@@ -9,6 +9,8 @@ const (
 	LocalS3Store = "local_s3"
 	// local hosted agents store type
 	LocalHostedAgents = "local_hosted_agents"
+	// local file store type
+	LocalFileStore = "local_file"
 )
 
 type TransferInfo struct {
@@ -20,7 +22,7 @@ type TransferInfo struct {
 
 func IsValidStore(storeType string) bool {
 	switch storeType {
-	case LocalS3Store, LocalHostedAgents:
+	case LocalS3Store, LocalHostedAgents, LocalFileStore:
 		return true
 	default:
 		return false

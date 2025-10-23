@@ -20,6 +20,8 @@ func NewBlobStore(ctx context.Context, store string, bucketURL string) (Blob, er
 		return NewS3Blob(ctx, bucketURL)
 	case LocalHostedAgents:
 		return NewNscStore()
+	case LocalFileStore:
+		return NewLocalFileBlob(ctx, bucketURL)
 	default:
 		return nil, fmt.Errorf("unsupported store type: %s", store)
 	}
