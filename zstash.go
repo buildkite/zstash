@@ -186,10 +186,6 @@ type SaveResult struct {
 	// Key is the actual cache key that was used (after template expansion).
 	Key string
 
-	// Registry is the cache registry that was used.
-	// Defaults to "~" if not specified in the cache configuration.
-	Registry string
-
 	// UploadID is the unique identifier for this upload (if created).
 	// Empty if CacheCreated is false.
 	UploadID string
@@ -225,10 +221,6 @@ type RestoreResult struct {
 	// Key is the actual cache key that was restored.
 	// May differ from the requested key if FallbackUsed is true.
 	Key string
-
-	// Registry is the cache registry that was used.
-	// Defaults to "~" if not specified in the cache configuration.
-	Registry string
 
 	// FallbackUsed indicates whether a fallback key was used.
 	// true means the exact key wasn't found, but a fallback key matched.

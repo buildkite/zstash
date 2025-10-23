@@ -72,18 +72,11 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		return result, err
 	}
 
-	// Set registry: use cache-specific registry if provided, otherwise use client default
-	if cacheConfig.Registry != "" {
-		result.Registry = cacheConfig.Registry
-	} else {
-		result.Registry = c.registry
-	}
-
 	result.Key = cacheConfig.Key
 
 	span.SetAttributes(
 		attribute.String("cache.key", cacheConfig.Key),
-		attribute.String("cache.registry", result.Registry),
+		attribute.String("cache.registry", c.registry),
 		attribute.Int("cache.paths_count", len(cacheConfig.Paths)),
 		attribute.Int("cache.fallback_keys_count", len(cacheConfig.FallbackKeys)),
 	)
@@ -100,7 +93,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	c.callProgress("checking_exists", "Checking if cache already exists", 0, 0)
 
 	// Check if cache already exists
-	_, exists, err := c.client.CachePeekExists(ctx, result.Registry, api.CachePeekReq{
+	_, exists, err := c.client.CachePeekExists(ctx, c.registry, api.CachePeekReq{
 		Key:    cacheConfig.Key,
 		Branch: c.branch,
 	})
@@ -127,7 +120,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	c.callProgress("fetching_registry", "Looking up cache registry", 0, 0)
 
 	// Get cache registry information
-	registryResp, err := c.client.CacheRegistry(ctx, result.Registry)
+	registryResp, err := c.client.CacheRegistry(ctx, c.registry)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to get cache registry")
@@ -237,7 +230,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	c.callProgress("committing", "Committing cache entry", 0, 0)
 
 	// Commit cache
-	_, err = c.client.CacheCommit(ctx, result.Registry, api.CacheCommitReq{
+	_, err = c.client.CacheCommit(ctx, c.registry, api.CacheCommitReq{
 		UploadID: createResp.UploadID,
 	})
 	if err != nil {
