@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/buildkite/zstash/internal/trace"
 	"github.com/google/go-querystring/query"
 	"github.com/klauspost/compress/gzhttp"
-	"github.com/rs/zerolog/log"
 	otel "go.opentelemetry.io/otel/trace"
 )
 
@@ -250,9 +250,7 @@ func (c Client) CacheCommit(ctx context.Context, registry string, commit CacheCo
 		return resp, trace.NewError(span, "failed to do request: %w", err)
 	}
 
-	log.Info().Fields(map[string]any{
-		"resp": resp,
-	}).Msg("Cache committed with the following parameters")
+	slog.Info("Cache committed with the following parameters", "resp", resp)
 
 	if res.StatusCode != http.StatusOK {
 		return resp, trace.NewError(span, "failed to commit: %s", res.Status)
@@ -302,18 +300,17 @@ func (c Client) CacheRetrieve(ctx context.Context, registry string, retrieve Cac
 
 	u.RawQuery = queryParams.Encode()
 
-	log.Info().Str("url", u.String()).Msg("Cache retrieve URL")
+	slog.Info("Cache retrieve URL", "url", u.String())
 
 	res, resp, err := doRequest[CacheRetrieveReq, CacheRetrieveResp](ctx, c.client, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
 
-	log.Info().Fields(map[string]any{
-		"resp":   resp,
-		"status": res.Status,
-		"code":   res.StatusCode,
-	}).Msg("Cache retrieved with the following parameters")
+	slog.Info("Cache retrieved with the following parameters",
+		"resp", resp,
+		"status", res.Status,
+		"code", res.StatusCode)
 
 	return handleCacheResponse(span, res, resp)
 }
