@@ -63,6 +63,7 @@ type Cache struct {
 	pipeline     string
 	organization string
 	platform     string
+	registry     string
 	caches       []cache.Cache
 	onProgress   ProgressCallback
 }
@@ -95,6 +96,11 @@ type Config struct {
 	// Platform is the OS/arch string (e.g., "linux/amd64", "darwin/arm64").
 	// If empty, defaults to runtime.GOOS/runtime.GOARCH.
 	Platform string
+
+	// Registry is the default cache registry to use for all cache operations.
+	// If empty, defaults to "~" (the default registry).
+	// Individual cache configurations can override this by setting their own Registry field.
+	Registry string
 
 	// Env is an optional environment variable map used for cache template expansion.
 	// If nil, OS environment variables are used instead via os.Getenv.
@@ -180,10 +186,6 @@ type SaveResult struct {
 	// Key is the actual cache key that was used (after template expansion).
 	Key string
 
-	// Registry is the cache registry that was used.
-	// Defaults to "~" if not specified in the cache configuration.
-	Registry string
-
 	// UploadID is the unique identifier for this upload (if created).
 	// Empty if CacheCreated is false.
 	UploadID string
@@ -219,10 +221,6 @@ type RestoreResult struct {
 	// Key is the actual cache key that was restored.
 	// May differ from the requested key if FallbackUsed is true.
 	Key string
-
-	// Registry is the cache registry that was used.
-	// Defaults to "~" if not specified in the cache configuration.
-	Registry string
 
 	// FallbackUsed indicates whether a fallback key was used.
 	// true means the exact key wasn't found, but a fallback key matched.

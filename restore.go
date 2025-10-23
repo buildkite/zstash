@@ -67,9 +67,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	)
 
 	startTime := time.Now()
-	result := RestoreResult{
-		Registry: "~", // default registry
-	}
+	result := RestoreResult{}
 
 	// Find the cache configuration
 	cacheConfig, err := c.findCache(cacheID)
@@ -79,16 +77,11 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		return result, err
 	}
 
-	// Set registry (default to "~" if not specified)
-	if cacheConfig.Registry != "" {
-		result.Registry = cacheConfig.Registry
-	}
-
 	result.Key = cacheConfig.Key
 
 	span.SetAttributes(
 		attribute.String("cache.key", cacheConfig.Key),
-		attribute.String("cache.registry", result.Registry),
+		attribute.String("cache.registry", c.registry),
 		attribute.StringSlice("cache.fallback_keys", cacheConfig.FallbackKeys),
 		attribute.Int("cache.paths_count", len(cacheConfig.Paths)),
 	)
@@ -98,7 +91,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	c.callProgress("checking_exists", "Checking if cache exists", 0, 0)
 
 	// Check if cache exists
-	retrieveResp, exists, err := c.client.CacheRetrieve(ctx, result.Registry, api.CacheRetrieveReq{
+	retrieveResp, exists, err := c.client.CacheRetrieve(ctx, c.registry, api.CacheRetrieveReq{
 		Key:          cacheConfig.Key,
 		Branch:       c.branch,
 		FallbackKeys: strings.Join(cacheConfig.FallbackKeys, ","),

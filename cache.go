@@ -52,6 +52,10 @@ func NewCache(cfg Config) (*Cache, error) {
 		cfg.Platform = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
+	if cfg.Registry == "" {
+		cfg.Registry = "~"
+	}
+
 	var (
 		err error
 		// Expand cache configurations
@@ -87,6 +91,7 @@ func NewCache(cfg Config) (*Cache, error) {
 		pipeline:     cfg.Pipeline,
 		organization: cfg.Organization,
 		platform:     cfg.Platform,
+		registry:     cfg.Registry,
 		caches:       expandedCaches,
 		onProgress:   cfg.OnProgress,
 	}, nil
