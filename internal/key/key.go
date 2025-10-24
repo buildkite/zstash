@@ -100,7 +100,7 @@ func getEnvWithMap(envMap map[string]string) func(string) string {
 
 func checksumPaths() func(files ...string) string {
 	return func(patterns ...string) string {
-		slog.Info("checksumPaths", "files", patterns)
+		slog.Debug("checksumPaths", "files", patterns)
 
 		if len(patterns) == 0 {
 			return ""
@@ -118,7 +118,7 @@ func checksumPaths() func(files ...string) string {
 			return ""
 		}
 
-		slog.Info("resolved files for checksumming", "files", len(files))
+		slog.Debug("resolved files for checksumming", "files", len(files))
 
 		// Calculate individual checksums and combine (for backward compatibility)
 		var sums []string
