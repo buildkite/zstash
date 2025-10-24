@@ -4,7 +4,7 @@ Go cache library providing cache save/restore and API functionality for the [Bui
 
 # Cache Key Pattern Matching
 
-zstash supports full glob pattern matching for cache keys using the [doublestar](https://pkg.go.dev/drjosh.dev/zzglob) library.
+zstash supports full glob pattern matching for cache keys using the [zzglob](https://pkg.go.dev/drjosh.dev/zzglob) library.
 
 # API Documentation
 
