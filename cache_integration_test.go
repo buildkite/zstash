@@ -228,12 +228,16 @@ func createRandomFile(t *testing.T, path string, sizeBytes int64) {
 }
 
 // setupTestCache creates a test cache with temporary directories and files
-func setupTestCache(t *testing.T, storageType string) (cacheClient *Cache, cacheDir string, storageDir string, cleanup func()) {
+func setupTestCache(t *testing.T, storageType string) (cacheClient *Cache, cacheDir string, storageDir string) {
 	t.Helper()
 
-	// Create temp directories in current working directory to avoid chroot issues
-	// The archive code uses UserHomeDir as chroot for absolute paths, but uses CWD for relative paths
-	tmpBase := fmt.Sprintf(".test-cache-%d", time.Now().UnixNano())
+	// Create temp directory under current working directory to satisfy chroot requirements
+	// The archive code uses UserHomeDir as chroot for absolute paths, but CWD for relative paths
+	// Using a relative path ensures it's within the CWD chroot
+	tmpBase := filepath.Join(".test-cache", t.Name())
+	t.Cleanup(func() {
+		_ = os.RemoveAll(".test-cache")
+	})
 	cacheDir = filepath.Join(tmpBase, "cache")
 	storageDir = filepath.Join(tmpBase, "storage")
 
@@ -290,19 +294,14 @@ func setupTestCache(t *testing.T, storageType string) (cacheClient *Cache, cache
 		onProgress: nil,
 	}
 
-	cleanup = func() {
-		_ = os.RemoveAll(tmpBase)
-	}
-
-	return client, cacheDir, storageDir, cleanup
+	return client, cacheDir, storageDir
 }
 
 func TestCacheIntegration_SaveAndRestore(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup test cache with local file storage
-	cacheClient, cacheDir, storageDir, cleanup := setupTestCache(t, "local_file")
-	defer cleanup()
+	cacheClient, cacheDir, storageDir := setupTestCache(t, "local_file")
 
 	// Save the cache
 	t.Run("save", func(t *testing.T) {
@@ -390,8 +389,7 @@ func TestCacheIntegration_SaveAndRestore(t *testing.T) {
 func TestCacheIntegration_SaveAlreadyExists(t *testing.T) {
 	ctx := context.Background()
 
-	cacheClient, _, _, cleanup := setupTestCache(t, "local_file")
-	defer cleanup()
+	cacheClient, _, _ := setupTestCache(t, "local_file")
 
 	// Save the cache first time
 	result1, err := cacheClient.Save(ctx, "test-cache")
@@ -409,8 +407,7 @@ func TestCacheIntegration_SaveAlreadyExists(t *testing.T) {
 func TestCacheIntegration_RestoreCacheMiss(t *testing.T) {
 	ctx := context.Background()
 
-	cacheClient, _, _, cleanup := setupTestCache(t, "local_file")
-	defer cleanup()
+	cacheClient, _, _ := setupTestCache(t, "local_file")
 
 	// Try to restore without saving first
 	result, err := cacheClient.Restore(ctx, "test-cache")
@@ -426,8 +423,7 @@ func TestCacheIntegration_RestoreWithFallback(t *testing.T) {
 	ctx := context.Background()
 
 	// Use setupTestCache to create test environment
-	cacheClient, cacheDir, _, cleanup := setupTestCache(t, "local_file")
-	defer cleanup()
+	cacheClient, cacheDir, _ := setupTestCache(t, "local_file")
 
 	// Save the fallback cache first
 	cacheClient.caches[0].Key = "v1-fallback-key"
@@ -465,8 +461,7 @@ func TestCacheIntegration_RestoreWithFallback(t *testing.T) {
 func TestCacheIntegration_LargeFileChecksum(t *testing.T) {
 	ctx := context.Background()
 
-	cacheClient, cacheDir, _, cleanup := setupTestCache(t, "local_file")
-	defer cleanup()
+	cacheClient, cacheDir, _ := setupTestCache(t, "local_file")
 
 	// Save cache
 	result, err := cacheClient.Save(ctx, "test-cache")
@@ -492,8 +487,7 @@ func TestCacheIntegration_LargeFileChecksum(t *testing.T) {
 func TestCacheIntegration_TransferMetrics(t *testing.T) {
 	ctx := context.Background()
 
-	cacheClient, _, _, cleanup := setupTestCache(t, "local_file")
-	defer cleanup()
+	cacheClient, _, _ := setupTestCache(t, "local_file")
 
 	// Save cache and check transfer metrics
 	saveResult, err := cacheClient.Save(ctx, "test-cache")
