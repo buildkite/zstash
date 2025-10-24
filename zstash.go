@@ -56,7 +56,7 @@ var (
 // All cache operations respect context cancellation and will clean up resources
 // when the context is cancelled.
 type Cache struct {
-	client       api.Client
+	client       api.CacheClient
 	bucketURL    string
 	format       string
 	branch       string
@@ -75,7 +75,7 @@ type Cache struct {
 type Config struct {
 	// Client is the Buildkite API client (required).
 	// Create with api.NewClient(ctx, version, endpoint, token).
-	Client api.Client
+	Client api.CacheClient
 
 	// BucketURL is the storage backend URL (required for most store types).
 	// Examples: "s3://bucket-name", "gs://bucket-name", "file:///path/to/dir"

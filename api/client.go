@@ -28,15 +28,35 @@ var (
 	ErrCacheEntryNotFound = errors.New("cache entry not found")
 )
 
-// isJSONContentType checks if the content type indicates JSON response
-// Handles cases like "application/json" and "application/json; charset=utf-8"
-func isJSONContentType(contentType string) bool {
-	// Remove any leading/trailing whitespace and convert to lowercase
-	contentType = strings.TrimSpace(strings.ToLower(contentType))
+// CacheClient defines the interface for cache API operations.
+// This interface is implemented by Client and can be mocked for testing.
+type CacheClient interface {
+	// CacheRegistry retrieves information about a cache registry.
+	// Returns the registry configuration or an error if not found.
+	CacheRegistry(ctx context.Context, registry string) (CacheRegistryResp, error)
 
-	// Check if it starts with "application/json"
-	return strings.HasPrefix(contentType, "application/json")
+	// CachePeekExists checks if a cache entry exists for the given key.
+	// Returns the cache metadata, a boolean indicating existence (true if found), and any error.
+	// When the cache entry is not found, returns (resp, false, nil) with resp.Message set.
+	CachePeekExists(ctx context.Context, registry string, req CachePeekReq) (CachePeekResp, bool, error)
+
+	// CacheCreate creates a new cache entry and returns upload information.
+	// Returns upload instructions including the upload ID and storage location.
+	CacheCreate(ctx context.Context, registry string, req CacheCreateReq) (CacheCreateResp, error)
+
+	// CacheCommit marks a cache entry as committed after successful upload.
+	// The upload ID from CacheCreate must be provided.
+	CacheCommit(ctx context.Context, registry string, req CacheCommitReq) (CacheCommitResp, error)
+
+	// CacheRetrieve retrieves download information for a cache entry.
+	// Returns the cache metadata, a boolean indicating if found (true if exists), and any error.
+	// When the cache entry is not found, returns (resp, false, nil) with resp.Message set.
+	// The response may indicate a fallback key was used via resp.Fallback.
+	CacheRetrieve(ctx context.Context, registry string, req CacheRetrieveReq) (CacheRetrieveResp, bool, error)
 }
+
+// Verify that Client implements CacheClient
+var _ CacheClient = (*Client)(nil)
 
 type Client struct {
 	client   *http.Client
@@ -89,11 +109,23 @@ type CachePeekReq struct {
 }
 
 type CachePeekResp struct {
-	Store       string    `json:"store"` // The store used for the cache entry
-	Digest      string    `json:"digest"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	Compression string    `json:"compression"`
-	Message     string    `json:"message"`
+	Store        string    `json:"store"` // The store used for the cache entry
+	Digest       string    `json:"digest"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	Compression  string    `json:"compression"`
+	Message      string    `json:"message"`
+	FileSize     int       `json:"file_size"`
+	Paths        []string  `json:"paths"`
+	Pipeline     string    `json:"pipeline"`
+	Branch       string    `json:"branch"`
+	Owner        string    `json:"owner"`
+	Platform     string    `json:"platform"`
+	Key          string    `json:"key"`
+	FallbackKeys []string  `json:"fallback_keys"`
+	CreatedAt    time.Time `json:"created_at"`
+	AgentID      string    `json:"agent_id"`
+	JobID        string    `json:"job_id"`
+	BuildID      string    `json:"build_id"`
 }
 
 type CacheRegistryResp struct {
@@ -362,9 +394,32 @@ func doRequest[T any, V any](ctx context.Context, client *http.Client, method st
 	}
 
 	// read the response body
-	if err = json.NewDecoder(res.Body).Decode(&resp); err != nil {
+	respBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, resp, trace.NewError(span, "failed to read response body: %w", err)
+	}
+
+	slog.Debug("API call", "method", method, "url", url, "status", res.StatusCode, "body", string(respBody))
+
+	if err = json.Unmarshal(respBody, &resp); err != nil {
 		return nil, resp, trace.NewError(span, "failed to decode response body: %w", err)
 	}
 
 	return res, resp, nil
+}
+
+// isJSONContentType checks if the content type indicates JSON response
+// Handles cases like "application/json", "application/json; charset=utf-8",
+// and structured syntax suffixes like "application/problem+json"
+func isJSONContentType(contentType string) bool {
+	// Remove any leading/trailing whitespace and convert to lowercase
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+
+	// Remove any parameters (e.g., "; charset=utf-8")
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+
+	// Check if it's application/json or application/*+json (e.g., application/problem+json)
+	return contentType == "application/json" || strings.HasPrefix(contentType, "application/") && strings.HasSuffix(contentType, "+json")
 }
