@@ -18,6 +18,8 @@ type TransferInfo struct {
 	TransferSpeed    float64 // in MB/s
 	RequestID        string
 	Duration         time.Duration
+	PartCount        int // number of parts used in multipart transfer (0 if not multipart)
+	Concurrency      int // number of concurrent uploads/downloads used
 }
 
 func IsValidStore(storeType string) bool {
