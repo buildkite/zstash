@@ -282,4 +282,10 @@ type TransferMetrics struct {
 	// RequestID is the provider-specific request identifier for debugging.
 	// Format depends on the storage backend (e.g., S3 request ID).
 	RequestID string
+
+	// PartCount is the number of parts used in multipart transfer (0 if not multipart).
+	PartCount int
+
+	// Concurrency is the number of concurrent uploads/downloads used.
+	Concurrency int
 }

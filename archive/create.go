@@ -76,7 +76,7 @@ func BuildArchive(ctx context.Context, paths []string, key string) (*ArchiveInfo
 			return nil, fmt.Errorf("failed to walk path: %s with error: %w", mapping.ResolvedPath, err)
 		}
 
-		slog.Info("chroot", "chroot", mapping.Chroot, "path", mapping.ResolvedPath)
+		slog.Debug("chroot", "chroot", mapping.Chroot, "path", mapping.ResolvedPath)
 
 		err = arc.Archive(context.Background(), mapping.Chroot, files)
 		if err != nil {
