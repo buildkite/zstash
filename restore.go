@@ -147,6 +147,8 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		TransferSpeed:    transferInfo.TransferSpeed,
 		Duration:         transferInfo.Duration,
 		RequestID:        transferInfo.RequestID,
+		PartCount:        transferInfo.PartCount,
+		Concurrency:      transferInfo.Concurrency,
 	}
 
 	c.callProgress("extracting", "Extracting files from cache", 0, int(transferInfo.BytesTransferred))

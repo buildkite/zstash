@@ -8,12 +8,14 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	smithymiddleware "github.com/aws/smithy-go/middleware"
 	"github.com/buildkite/zstash/internal/trace"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -66,6 +68,8 @@ func OptionsFromURL(s3url string) (*Options, error) {
 // S3Blob implements the Blob interface using AWS S3
 type S3Blob struct {
 	client     *s3.Client
+	uploader   *manager.Uploader
+	downloader *manager.Downloader
 	bucketName string
 	prefix     string
 }
@@ -103,14 +107,28 @@ func NewS3Blob(ctx context.Context, s3url string) (*S3Blob, error) {
 			}
 		})
 
+	// Create the uploader and downloader with default settings
+	// Default concurrency is 5, default part size is 5MB for uploads and 5MB for downloads
+	uploader := manager.NewUploader(client)
+	downloader := manager.NewDownloader(client)
+
+	slog.Debug("configured S3 transfer manager",
+		"upload_concurrency", manager.DefaultUploadConcurrency,
+		"upload_part_size", manager.DefaultUploadPartSize,
+		"download_concurrency", manager.DefaultDownloadConcurrency,
+		"download_part_size", manager.DefaultDownloadPartSize,
+	)
+
 	return &S3Blob{
 		client:     client,
+		uploader:   uploader,
+		downloader: downloader,
 		bucketName: opts.Bucket,
 		prefix:     opts.Prefix,
 	}, nil
 }
 
-// Upload uploads a file to S3
+// Upload uploads a file to S3 using multipart upload for parallel transfers
 func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*TransferInfo, error) {
 	ctx, span := trace.Start(ctx, "S3Blob.Upload")
 	defer span.End()
@@ -135,8 +153,16 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 		return nil, fmt.Errorf("failed to stat file %s: %w", filePath, err)
 	}
 
-	// Upload the file to S3
-	result, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+	bytesWritten := fileInfo.Size()
+
+	slog.Debug("starting S3 upload",
+		"key", fullKey,
+		"file_size", bytesWritten,
+		"concurrency", manager.DefaultUploadConcurrency,
+	)
+
+	// Upload the file to S3 using the multipart uploader
+	result, err := b.uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(b.bucketName),
 		Key:    aws.String(fullKey),
 		Body:   file,
@@ -145,27 +171,47 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 		return nil, fmt.Errorf("failed to upload file to S3: %w", err)
 	}
 
-	requestID, _ := middleware.GetRequestIDMetadata(result.ResultMetadata)
+	// Get actual part count from completed parts
+	// For single part uploads (small files), CompletedParts is empty so default to 1
+	partCount := len(result.CompletedParts)
+	if partCount == 0 {
+		partCount = 1
+	}
 
-	bytesWritten := fileInfo.Size()
+	// Extract request ID from the upload result (only set for multipart uploads)
+	requestID := result.UploadID
 
-	averageSpeed := calculateTransferSpeedMBps(bytesWritten, time.Since(start))
+	duration := time.Since(start)
+	averageSpeed := calculateTransferSpeedMBps(bytesWritten, duration)
+
+	slog.Debug("completed S3 upload",
+		"key", fullKey,
+		"bytes_transferred", bytesWritten,
+		"parts_uploaded", partCount,
+		"concurrency", manager.DefaultUploadConcurrency,
+		"duration", duration,
+		"transfer_speed_mbps", fmt.Sprintf("%.2f", averageSpeed),
+	)
 
 	span.SetAttributes(
 		attribute.Int64("bytes_transferred", bytesWritten),
 		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
 		attribute.String("request_id", requestID),
+		attribute.Int("part_count", partCount),
+		attribute.Int("concurrency", manager.DefaultUploadConcurrency),
 	)
 
 	return &TransferInfo{
 		BytesTransferred: bytesWritten,
 		TransferSpeed:    averageSpeed,
 		RequestID:        requestID,
-		Duration:         time.Since(start),
+		Duration:         duration,
+		PartCount:        partCount,
+		Concurrency:      manager.DefaultUploadConcurrency,
 	}, nil
 }
 
-// Download downloads a file from S3
+// Download downloads a file from S3 using parallel range requests for large files
 func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*TransferInfo, error) {
 	ctx, span := trace.Start(ctx, "S3Blob.Download")
 	defer span.End()
@@ -175,21 +221,7 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 	// Get the full key with prefix
 	fullKey := b.getFullKey(key)
 
-	// Get the object from S3
-	result, err := b.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(b.bucketName),
-		Key:    aws.String(fullKey),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to download file from S3: %w", err)
-	}
-	defer func() {
-		_ = result.Body.Close()
-	}()
-
-	requestID, _ := middleware.GetRequestIDMetadata(result.ResultMetadata)
-
-	// Create the destination file
+	// Create the destination file - must support WriteAt for parallel downloads
 	destFile, err := os.Create(destPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create destination file %s: %w", destPath, err)
@@ -198,24 +230,67 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		_ = destFile.Close()
 	}()
 
-	// Write the S3 object to the file
-	bytesWritten, err := destFile.ReadFrom(result.Body)
+	slog.Debug("starting S3 download",
+		"key", fullKey,
+		"concurrency", manager.DefaultDownloadConcurrency,
+	)
+
+	// Track number of GetObject requests (parts) made during download
+	var partCount atomic.Int32
+
+	// Download the file from S3 using parallel range requests
+	bytesWritten, err := b.downloader.Download(ctx, destFile, &s3.GetObjectInput{
+		Bucket: aws.String(b.bucketName),
+		Key:    aws.String(fullKey),
+	}, func(d *manager.Downloader) {
+		d.ClientOptions = append(d.ClientOptions, func(o *s3.Options) {
+			o.APIOptions = append(o.APIOptions, func(stack *smithymiddleware.Stack) error {
+				return stack.Initialize.Add(smithymiddleware.InitializeMiddlewareFunc(
+					"PartCounter",
+					func(ctx context.Context, in smithymiddleware.InitializeInput, next smithymiddleware.InitializeHandler) (smithymiddleware.InitializeOutput, smithymiddleware.Metadata, error) {
+						partCount.Add(1)
+						return next.HandleInitialize(ctx, in)
+					},
+				), smithymiddleware.Before)
+			})
+		})
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to write file contents: %w", err)
+		return nil, fmt.Errorf("failed to download file from S3: %w", err)
 	}
 
-	averageSpeed := calculateTransferSpeedMBps(bytesWritten, time.Since(start))
+	// Get actual part count from interceptor
+	actualPartCount := int(partCount.Load())
+	if actualPartCount == 0 {
+		actualPartCount = 1
+	}
+
+	duration := time.Since(start)
+	averageSpeed := calculateTransferSpeedMBps(bytesWritten, duration)
+
+	slog.Debug("completed S3 download",
+		"key", fullKey,
+		"bytes_transferred", bytesWritten,
+		"parts_downloaded", actualPartCount,
+		"concurrency", manager.DefaultDownloadConcurrency,
+		"duration", duration,
+		"transfer_speed_mbps", fmt.Sprintf("%.2f", averageSpeed),
+	)
 
 	span.SetAttributes(
 		attribute.Int64("bytes_transferred", bytesWritten),
 		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
+		attribute.Int("part_count", actualPartCount),
+		attribute.Int("concurrency", manager.DefaultDownloadConcurrency),
 	)
 
 	return &TransferInfo{
 		BytesTransferred: bytesWritten,
 		TransferSpeed:    averageSpeed,
-		RequestID:        requestID,
-		Duration:         time.Since(start),
+		RequestID:        "", // Download doesn't return a single request ID for parallel downloads
+		Duration:         duration,
+		PartCount:        actualPartCount,
+		Concurrency:      manager.DefaultDownloadConcurrency,
 	}, nil
 }
 

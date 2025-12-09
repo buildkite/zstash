@@ -219,6 +219,8 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		TransferSpeed:    transferInfo.TransferSpeed,
 		Duration:         transferInfo.Duration,
 		RequestID:        transferInfo.RequestID,
+		PartCount:        transferInfo.PartCount,
+		Concurrency:      transferInfo.Concurrency,
 	}
 
 	span.SetAttributes(

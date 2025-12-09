@@ -282,7 +282,7 @@ func (c Client) CacheCommit(ctx context.Context, registry string, commit CacheCo
 		return resp, trace.NewError(span, "failed to do request: %w", err)
 	}
 
-	slog.Info("Cache committed with the following parameters", "resp", resp)
+	slog.Debug("Cache committed with the following parameters", "resp", resp)
 
 	if res.StatusCode != http.StatusOK {
 		return resp, trace.NewError(span, "failed to commit: %s", res.Status)
@@ -332,14 +332,14 @@ func (c Client) CacheRetrieve(ctx context.Context, registry string, retrieve Cac
 
 	u.RawQuery = queryParams.Encode()
 
-	slog.Info("Cache retrieve URL", "url", u.String())
+	slog.Debug("Cache retrieve URL", "url", u.String())
 
 	res, resp, err := doRequest[CacheRetrieveReq, CacheRetrieveResp](ctx, c.client, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return resp, false, trace.NewError(span, "failed to do request: %w", err)
 	}
 
-	slog.Info("Cache retrieved with the following parameters",
+	slog.Debug("Cache retrieved with the following parameters",
 		"resp", resp,
 		"status", res.Status,
 		"code", res.StatusCode)
