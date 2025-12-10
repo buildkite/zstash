@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,8 @@ type Options struct {
 	Region       string
 	Prefix       string
 	UsePathStyle bool
+	Concurrency  int
+	PartSizeMB   int
 }
 
 func OptionsFromURL(s3url string) (*Options, error) {
@@ -62,16 +65,40 @@ func OptionsFromURL(s3url string) (*Options, error) {
 		opts.UsePathStyle = true
 	}
 
+	if concurrencyStr := u.Query().Get("concurrency"); concurrencyStr != "" {
+		concurrency, err := strconv.Atoi(concurrencyStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid concurrency value %q: %w", concurrencyStr, err)
+		}
+		if concurrency < 0 || concurrency > 100 {
+			return nil, fmt.Errorf("concurrency must be between 0 and 100, got %d", concurrency)
+		}
+		opts.Concurrency = concurrency
+	}
+
+	if partSizeStr := u.Query().Get("part_size_mb"); partSizeStr != "" {
+		partSizeMB, err := strconv.Atoi(partSizeStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid part_size_mb value %q: %w", partSizeStr, err)
+		}
+		if partSizeMB < 0 || (partSizeMB > 0 && partSizeMB < 5) || partSizeMB > 5120 {
+			return nil, fmt.Errorf("part_size_mb must be 0 (default) or between 5 and 5120, got %d", partSizeMB)
+		}
+		opts.PartSizeMB = partSizeMB
+	}
+
 	return opts, nil
 }
 
 // S3Blob implements the Blob interface using AWS S3
 type S3Blob struct {
-	client     *s3.Client
-	uploader   *manager.Uploader
-	downloader *manager.Downloader
-	bucketName string
-	prefix     string
+	client      *s3.Client
+	uploader    *manager.Uploader
+	downloader  *manager.Downloader
+	bucketName  string
+	prefix      string
+	concurrency int
+	partSize    int64
 }
 
 // NewS3Blob creates a new S3Blob instance using an S3 URL and prefix
@@ -107,24 +134,42 @@ func NewS3Blob(ctx context.Context, s3url string) (*S3Blob, error) {
 			}
 		})
 
-	// Create the uploader and downloader with default settings
-	// Default concurrency is 5, default part size is 5MB for uploads and 5MB for downloads
-	uploader := manager.NewUploader(client)
-	downloader := manager.NewDownloader(client)
+	// Determine concurrency (default to SDK default if not specified)
+	concurrency := opts.Concurrency
+	if concurrency == 0 {
+		concurrency = manager.DefaultUploadConcurrency
+	}
+
+	// Determine part size (default to SDK default if not specified)
+	// Convert MB to bytes
+	partSize := manager.DefaultUploadPartSize
+	if opts.PartSizeMB > 0 {
+		partSize = int64(opts.PartSizeMB) * 1024 * 1024
+	}
+
+	// Create the uploader and downloader with configured settings
+	uploader := manager.NewUploader(client, func(u *manager.Uploader) {
+		u.Concurrency = concurrency
+		u.PartSize = partSize
+	})
+	downloader := manager.NewDownloader(client, func(d *manager.Downloader) {
+		d.Concurrency = concurrency
+		d.PartSize = partSize
+	})
 
 	slog.Debug("configured S3 transfer manager",
-		"upload_concurrency", manager.DefaultUploadConcurrency,
-		"upload_part_size", manager.DefaultUploadPartSize,
-		"download_concurrency", manager.DefaultDownloadConcurrency,
-		"download_part_size", manager.DefaultDownloadPartSize,
+		"concurrency", concurrency,
+		"part_size_bytes", partSize,
 	)
 
 	return &S3Blob{
-		client:     client,
-		uploader:   uploader,
-		downloader: downloader,
-		bucketName: opts.Bucket,
-		prefix:     opts.Prefix,
+		client:      client,
+		uploader:    uploader,
+		downloader:  downloader,
+		bucketName:  opts.Bucket,
+		prefix:      opts.Prefix,
+		concurrency: concurrency,
+		partSize:    partSize,
 	}, nil
 }
 
@@ -158,7 +203,7 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 	slog.Debug("starting S3 upload",
 		"key", fullKey,
 		"file_size", bytesWritten,
-		"concurrency", manager.DefaultUploadConcurrency,
+		"concurrency", b.concurrency,
 	)
 
 	// Upload the file to S3 using the multipart uploader
@@ -188,7 +233,7 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 		"key", fullKey,
 		"bytes_transferred", bytesWritten,
 		"parts_uploaded", partCount,
-		"concurrency", manager.DefaultUploadConcurrency,
+		"concurrency", b.concurrency,
 		"duration", duration,
 		"transfer_speed_mbps", fmt.Sprintf("%.2f", averageSpeed),
 	)
@@ -198,7 +243,7 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
 		attribute.String("request_id", requestID),
 		attribute.Int("part_count", partCount),
-		attribute.Int("concurrency", manager.DefaultUploadConcurrency),
+		attribute.Int("concurrency", b.concurrency),
 	)
 
 	return &TransferInfo{
@@ -207,7 +252,7 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 		RequestID:        requestID,
 		Duration:         duration,
 		PartCount:        partCount,
-		Concurrency:      manager.DefaultUploadConcurrency,
+		Concurrency:      b.concurrency,
 	}, nil
 }
 
@@ -232,7 +277,7 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 
 	slog.Debug("starting S3 download",
 		"key", fullKey,
-		"concurrency", manager.DefaultDownloadConcurrency,
+		"concurrency", b.concurrency,
 	)
 
 	// Track number of GetObject requests (parts) made during download
@@ -272,7 +317,7 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		"key", fullKey,
 		"bytes_transferred", bytesWritten,
 		"parts_downloaded", actualPartCount,
-		"concurrency", manager.DefaultDownloadConcurrency,
+		"concurrency", b.concurrency,
 		"duration", duration,
 		"transfer_speed_mbps", fmt.Sprintf("%.2f", averageSpeed),
 	)
@@ -281,7 +326,7 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		attribute.Int64("bytes_transferred", bytesWritten),
 		attribute.String("transfer_speed", fmt.Sprintf("%.2fMB/s", averageSpeed)),
 		attribute.Int("part_count", actualPartCount),
-		attribute.Int("concurrency", manager.DefaultDownloadConcurrency),
+		attribute.Int("concurrency", b.concurrency),
 	)
 
 	return &TransferInfo{
@@ -290,7 +335,7 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		RequestID:        "", // Download doesn't return a single request ID for parallel downloads
 		Duration:         duration,
 		PartCount:        actualPartCount,
-		Concurrency:      manager.DefaultDownloadConcurrency,
+		Concurrency:      b.concurrency,
 	}, nil
 }
 
