@@ -124,6 +124,120 @@ func TestOptionsFromURL(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "s3 bucket with concurrency",
+			url:  "s3://my-bucket?concurrency=10",
+			want: &Options{
+				Bucket:      "my-bucket",
+				Region:      "us-east-1",
+				Concurrency: 10,
+			},
+			wantErr: false,
+		},
+		{
+			name: "s3 bucket with all options including concurrency",
+			url:  "s3://my-bucket/prefix?region=eu-west-1&concurrency=20",
+			want: &Options{
+				Bucket:      "my-bucket",
+				Region:      "eu-west-1",
+				Prefix:      "prefix",
+				Concurrency: 20,
+			},
+			wantErr: false,
+		},
+		{
+			name:        "invalid concurrency value",
+			url:         "s3://my-bucket?concurrency=abc",
+			wantErr:     true,
+			errContains: "invalid concurrency value",
+		},
+		{
+			name: "concurrency of 0 means use default",
+			url:  "s3://my-bucket?concurrency=0",
+			want: &Options{
+				Bucket:      "my-bucket",
+				Region:      "us-east-1",
+				Concurrency: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name:        "negative concurrency",
+			url:         "s3://my-bucket?concurrency=-5",
+			wantErr:     true,
+			errContains: "concurrency must be between 0 and 100",
+		},
+		{
+			name:        "concurrency exceeds maximum",
+			url:         "s3://my-bucket?concurrency=101",
+			wantErr:     true,
+			errContains: "concurrency must be between 0 and 100",
+		},
+		{
+			name: "part_size_mb valid value",
+			url:  "s3://my-bucket?part_size_mb=10",
+			want: &Options{
+				Bucket:     "my-bucket",
+				Region:     "us-east-1",
+				PartSizeMB: 10,
+			},
+			wantErr: false,
+		},
+		{
+			name: "part_size_mb of 0 means use default",
+			url:  "s3://my-bucket?part_size_mb=0",
+			want: &Options{
+				Bucket:     "my-bucket",
+				Region:     "us-east-1",
+				PartSizeMB: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "part_size_mb maximum value (5GB)",
+			url:  "s3://my-bucket?part_size_mb=5120",
+			want: &Options{
+				Bucket:     "my-bucket",
+				Region:     "us-east-1",
+				PartSizeMB: 5120,
+			},
+			wantErr: false,
+		},
+		{
+			name:        "part_size_mb below minimum (5MB)",
+			url:         "s3://my-bucket?part_size_mb=4",
+			wantErr:     true,
+			errContains: "part_size_mb must be 0 (default) or between 5 and 5120",
+		},
+		{
+			name:        "part_size_mb exceeds maximum",
+			url:         "s3://my-bucket?part_size_mb=5121",
+			wantErr:     true,
+			errContains: "part_size_mb must be 0 (default) or between 5 and 5120",
+		},
+		{
+			name:        "part_size_mb negative value",
+			url:         "s3://my-bucket?part_size_mb=-1",
+			wantErr:     true,
+			errContains: "part_size_mb must be 0 (default) or between 5 and 5120",
+		},
+		{
+			name:        "part_size_mb invalid value",
+			url:         "s3://my-bucket?part_size_mb=abc",
+			wantErr:     true,
+			errContains: "invalid part_size_mb value",
+		},
+		{
+			name: "all transfer options combined",
+			url:  "s3://my-bucket?concurrency=10&part_size_mb=100",
+			want: &Options{
+				Bucket:      "my-bucket",
+				Region:      "us-east-1",
+				Concurrency: 10,
+				PartSizeMB:  100,
+			},
+			wantErr: false,
+		},
+		{
 			name:        "invalid URL",
 			url:         "://invalid",
 			want:        nil,
@@ -150,6 +264,8 @@ func TestOptionsFromURL(t *testing.T) {
 			assert.Equal(t, tt.want.Prefix, got.Prefix, "Prefix mismatch")
 			assert.Equal(t, tt.want.S3Endpoint, got.S3Endpoint, "S3Endpoint mismatch")
 			assert.Equal(t, tt.want.UsePathStyle, got.UsePathStyle, "UsePathStyle mismatch")
+			assert.Equal(t, tt.want.Concurrency, got.Concurrency, "Concurrency mismatch")
+			assert.Equal(t, tt.want.PartSizeMB, got.PartSizeMB, "PartSizeMB mismatch")
 		})
 	}
 }
