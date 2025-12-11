@@ -98,13 +98,13 @@ func NewCache(cfg Config) (*Cache, error) {
 }
 
 // callProgress safely calls the progress callback if it exists
-func (c *Cache) callProgress(stage string, message string, current int, total int) {
+func (c *Cache) callProgress(cacheID string, stage string, message string, current int, total int) {
 	if c.onProgress != nil {
 		// Protect against panics in user-provided callback
 		defer func() {
 			_ = recover() // Ignore panics - user callbacks shouldn't break the cache client
 		}()
-		c.onProgress(stage, message, current, total)
+		c.onProgress(cacheID, stage, message, current, total)
 	}
 }
 

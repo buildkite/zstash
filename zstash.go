@@ -124,6 +124,7 @@ type Config struct {
 // thread-safe as the callback may be called from multiple goroutines.
 //
 // Parameters:
+//   - cacheID: The ID of the cache being operated on.
 //   - stage: The current operation stage. See below for possible values.
 //   - message: A human-readable description of the current action.
 //   - current: Current progress value (bytes transferred, files processed, etc.).
@@ -145,7 +146,7 @@ type Config struct {
 //   - "downloading": Downloading cache (current=bytes received, total=total bytes)
 //   - "extracting": Extracting files (current=files extracted, total=total files)
 //   - "complete": Operation finished successfully
-type ProgressCallback func(stage string, message string, current int, total int)
+type ProgressCallback func(cacheID string, stage string, message string, current int, total int)
 
 // NewCache creates and validates a new cache client.
 // Implementation is in service.go

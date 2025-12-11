@@ -81,7 +81,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		attribute.Int("cache.fallback_keys_count", len(cacheConfig.FallbackKeys)),
 	)
 
-	c.callProgress("validating", "Validating cache configuration", 0, 0)
+	c.callProgress(cacheID, "validating", "Validating cache configuration", 0, 0)
 
 	// Validate cache paths exist
 	if err := checkPathsExist(cacheConfig.Paths); err != nil {
@@ -90,7 +90,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		return result, fmt.Errorf("invalid cache paths: %w", err)
 	}
 
-	c.callProgress("checking_exists", "Checking if cache already exists", 0, 0)
+	c.callProgress(cacheID, "checking_exists", "Checking if cache already exists", 0, 0)
 
 	// Check if cache already exists
 	_, exists, err := c.client.CachePeekExists(ctx, c.registry, api.CachePeekReq{
@@ -113,11 +113,11 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 			attribute.Int64("cache.duration_ms", result.TotalDuration.Milliseconds()),
 		)
 		span.SetStatus(codes.Ok, "cache already exists")
-		c.callProgress("complete", "Cache already exists", 0, 0)
+		c.callProgress(cacheID, "complete", "Cache already exists", 0, 0)
 		return result, nil
 	}
 
-	c.callProgress("fetching_registry", "Looking up cache registry", 0, 0)
+	c.callProgress(cacheID, "fetching_registry", "Looking up cache registry", 0, 0)
 
 	// Get cache registry information
 	registryResp, err := c.client.CacheRegistry(ctx, c.registry)
@@ -138,7 +138,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		return result, fmt.Errorf("invalid cache store configuration: %w", err)
 	}
 
-	c.callProgress("building_archive", "Building archive", 0, len(cacheConfig.Paths))
+	c.callProgress(cacheID, "building_archive", "Building archive", 0, len(cacheConfig.Paths))
 
 	// Build archive
 	archiveInfo, err := archive.BuildArchive(ctx, cacheConfig.Paths, cacheConfig.Key)
@@ -167,7 +167,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		attribute.String("cache.sha256sum", archiveInfo.Sha256sum),
 	)
 
-	c.callProgress("creating_entry", "Creating cache entry", 0, 0)
+	c.callProgress(cacheID, "creating_entry", "Creating cache entry", 0, 0)
 
 	// Create cache entry
 	createResp, err := c.client.CacheCreate(ctx, registryResp.Name, api.CacheCreateReq{
@@ -196,7 +196,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		attribute.String("cache.object_name", createResp.StoreObjectName),
 	)
 
-	c.callProgress("uploading", "Uploading cache archive", 0, int(archiveInfo.Size))
+	c.callProgress(cacheID, "uploading", "Uploading cache archive", 0, int(archiveInfo.Size))
 
 	// Upload archive
 	blobStore, err := store.NewBlobStore(ctx, registryResp.Store, c.bucketURL)
@@ -229,7 +229,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 		attribute.String("cache.request_id", transferInfo.RequestID),
 	)
 
-	c.callProgress("committing", "Committing cache entry", 0, 0)
+	c.callProgress(cacheID, "committing", "Committing cache entry", 0, 0)
 
 	// Commit cache
 	_, err = c.client.CacheCommit(ctx, c.registry, api.CacheCommitReq{
@@ -251,7 +251,7 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	)
 	span.SetStatus(codes.Ok, "cache saved successfully")
 
-	c.callProgress("complete", "Cache saved successfully", 0, 0)
+	c.callProgress(cacheID, "complete", "Cache saved successfully", 0, 0)
 
 	return result, nil
 }
