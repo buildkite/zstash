@@ -86,9 +86,9 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		attribute.Int("cache.paths_count", len(cacheConfig.Paths)),
 	)
 
-	c.callProgress("validating", "Validating cache configuration", 0, 0)
+	c.callProgress(cacheID, "validating", "Validating cache configuration", 0, 0)
 
-	c.callProgress("checking_exists", "Checking if cache exists", 0, 0)
+	c.callProgress(cacheID, "checking_exists", "Checking if cache exists", 0, 0)
 
 	// Check if cache exists
 	retrieveResp, exists, err := c.client.CacheRetrieve(ctx, c.registry, api.CacheRetrieveReq{
@@ -113,7 +113,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 			attribute.Int64("cache.duration_ms", result.TotalDuration.Milliseconds()),
 		)
 		span.SetStatus(codes.Ok, "cache miss")
-		c.callProgress("complete", "Cache miss", 0, 0)
+		c.callProgress(cacheID, "complete", "Cache miss", 0, 0)
 		return result, nil
 	}
 
@@ -128,7 +128,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		attribute.String("cache.matched_key", result.Key),
 	)
 
-	c.callProgress("downloading", "Downloading cache archive", 0, 0)
+	c.callProgress(cacheID, "downloading", "Downloading cache archive", 0, 0)
 
 	// Download cache
 	tmpDir, archiveFile, transferInfo, err := c.downloadCache(ctx, retrieveResp, c.bucketURL)
@@ -151,7 +151,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		Concurrency:      transferInfo.Concurrency,
 	}
 
-	c.callProgress("extracting", "Extracting files from cache", 0, int(transferInfo.BytesTransferred))
+	c.callProgress(cacheID, "extracting", "Extracting files from cache", 0, int(transferInfo.BytesTransferred))
 
 	// Extract files
 	archiveInfo, err := c.extractCache(ctx, archiveFile, transferInfo.BytesTransferred, cacheConfig.Paths)
@@ -188,7 +188,7 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 	)
 	span.SetStatus(codes.Ok, "cache restored successfully")
 
-	c.callProgress("complete", "Cache restored successfully", 0, 0)
+	c.callProgress(cacheID, "complete", "Cache restored successfully", 0, 0)
 
 	return result, nil
 }
