@@ -8,6 +8,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPathsToMappings_AbsolutePathUnderHome(t *testing.T) {
+	assert := require.New(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	paths := []string{
+		filepath.Join(home, ".go-build"),
+		filepath.Join(home, "go", "pkg", "mod"),
+	}
+
+	mappings, err := PathsToMappings(paths)
+	assert.NoError(err)
+	assert.Len(mappings, 2)
+
+	assert.Equal(".go-build", mappings[0].RelativePath)
+	assert.Equal(filepath.Join(home, ".go-build"), mappings[0].ResolvedPath)
+	assert.False(mappings[0].Relative)
+
+	assert.Equal(filepath.Join("go", "pkg", "mod"), mappings[1].RelativePath)
+	assert.Equal(filepath.Join(home, "go", "pkg", "mod"), mappings[1].ResolvedPath)
+	assert.False(mappings[1].Relative)
+}
+
 func TestResolveHomeDir(t *testing.T) {
 	assert := require.New(t)
 

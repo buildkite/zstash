@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,27 @@ import (
 	"github.com/wolfeidau/quickzip"
 	"go.opentelemetry.io/otel/attribute"
 )
+
+func ListArchive(ctx context.Context, zipFile *os.File, zipFileLen int64) ([]string, error) {
+	_, span := trace.Start(ctx, "ListArchive")
+	defer span.End()
+
+	reader, err := zip.NewReader(zipFile, zipFileLen)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open zip reader: %w", err)
+	}
+
+	entries := make([]string, 0, len(reader.File))
+	for _, f := range reader.File {
+		entries = append(entries, f.Name)
+	}
+
+	span.SetAttributes(
+		attribute.Int("entryCount", len(entries)),
+	)
+
+	return entries, nil
+}
 
 func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths []string) (*ArchiveInfo, error) {
 	_, span := trace.Start(ctx, "ExtractFiles")
@@ -30,9 +52,12 @@ func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths
 		return nil, fmt.Errorf("failed to create mappings: %w", err)
 	}
 
+	foundPaths := make(map[string]bool)
+
 	err = extract.ExtractWithPathMapper(ctx, func(file *zip.File) (string, error) {
 		for _, mapping := range mappings {
 			if strings.HasPrefix(file.Name, mapping.RelativePath) {
+				foundPaths[mapping.Path] = true
 				return filepath.Join(mapping.Chroot, file.Name), nil
 			}
 		}
@@ -41,6 +66,12 @@ func ExtractFiles(ctx context.Context, zipFile *os.File, zipFileLen int64, paths
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract zip file: %w", err)
+	}
+
+	for _, path := range paths {
+		if !foundPaths[path] {
+			slog.Warn("requested path not found in archive", "path", path)
+		}
 	}
 
 	bytesExtracted, countExtracted := extract.Written()
