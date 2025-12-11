@@ -32,15 +32,25 @@ func PathsToMappings(paths []string) ([]Mapping, error) {
 			Relative:     true,
 		}
 
+		homedir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+
 		if strings.HasPrefix(path, "~/") {
-			homedir, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to get home directory: %w", err)
-			}
 			mapping.ResolvedPath = filepath.Join(homedir, path[2:])
 			mapping.Relative = false
 
 			rel, err := filepath.Rel(homedir, mapping.ResolvedPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			mapping.RelativePath = rel
+		} else if filepath.IsAbs(path) && strings.HasPrefix(path, homedir) {
+			mapping.Relative = false
+
+			rel, err := filepath.Rel(homedir, path)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get relative path: %w", err)
 			}
