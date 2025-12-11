@@ -13,6 +13,10 @@ Parameters:
     Type: String
     Description: The prefix for the cache bucket name
     Default: buildkite-caches
+  ExpirationInDays:
+    Type: Number
+    Description: The number of days to expire cache objects
+    Default: 7
 Outputs:
   CacheBucketAccessRole:
     Value:
@@ -95,6 +99,11 @@ Resources:
       NotificationConfiguration:
         EventBridgeConfiguration:
           EventBridgeEnabled: true
+      LifecycleConfiguration:
+        Rules:
+        - Id: ExpireCacheObjects
+          Status: Enabled
+          ExpirationInDays: !Ref ExpirationInDays
 
   CacheBucketPolicy:
     Type: AWS::S3::BucketPolicy
