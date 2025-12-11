@@ -339,15 +339,13 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		MetadataDirective: "REPLACE",
 	})
 	if err != nil {
-		slog.Warn("failed to refresh object expiration",
-			"key", fullKey,
-			"error", err,
-		)
-	} else {
-		slog.Debug("refreshed object expiration",
-			"key", fullKey,
-		)
+		return nil, fmt.Errorf("failed to refresh object expiration: %w", err)
 	}
+
+	slog.Debug("refreshed object expiration",
+		"key", fullKey,
+		"bucket", b.bucketName,
+	)
 
 	return &TransferInfo{
 		BytesTransferred: bytesWritten,
