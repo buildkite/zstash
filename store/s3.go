@@ -329,6 +329,24 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 		attribute.Int("concurrency", b.concurrency),
 	)
 
+	// Copy the object to itself to reset the LastModified timestamp,
+	// which extends the lifecycle expiration.
+	copySource := fmt.Sprintf("%s/%s", b.bucketName, fullKey)
+	_, err = b.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:            aws.String(b.bucketName),
+		Key:               aws.String(fullKey),
+		CopySource:        aws.String(copySource),
+		MetadataDirective: "REPLACE",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh object expiration: %w", err)
+	}
+
+	slog.Debug("refreshed object expiration",
+		"key", fullKey,
+		"bucket", b.bucketName,
+	)
+
 	return &TransferInfo{
 		BytesTransferred: bytesWritten,
 		TransferSpeed:    averageSpeed,
