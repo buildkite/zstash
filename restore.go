@@ -2,9 +2,13 @@ package zstash
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -151,6 +155,25 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		Concurrency:      transferInfo.Concurrency,
 	}
 
+	c.callProgress(cacheID, "cleaning", "Cleaning paths", 0, 0)
+
+	for _, path := range cacheConfig.Paths {
+		extractedPath, err := archive.ResolveHomeDir(path)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to resolve home dir")
+			return result, fmt.Errorf("failed to resolve home dir for %q: %w", path, err)
+		}
+
+		slog.Debug("cleaning path", "path", path, "extractedPath", extractedPath)
+
+		if err := cleanPath(ctx, extractedPath); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to clean path")
+			return result, fmt.Errorf("failed to clean path %q: %w", extractedPath, err)
+		}
+	}
+
 	c.callProgress(cacheID, "extracting", "Extracting files from cache", 0, int(transferInfo.BytesTransferred))
 
 	// Extract files
@@ -278,4 +301,71 @@ func (c *Cache) extractCache(ctx context.Context, archiveFile string, archiveSiz
 	span.SetStatus(codes.Ok, "extraction completed")
 
 	return archiveInfo, nil
+}
+
+// cleanPath removes a directory tree for a configured cache path.
+// It handles Go module cache directories that have 0555 permissions by
+// making them writable before removal.
+func cleanPath(ctx context.Context, dir string) error {
+	if dir == "" {
+		return fmt.Errorf("cleanPath: empty directory path")
+	}
+
+	clean := filepath.Clean(dir)
+
+	// Refuse to delete root or current directory
+	if clean == "." || clean == string(os.PathSeparator) {
+		return fmt.Errorf("cleanPath: refusing to remove %q", clean)
+	}
+
+	// On Windows, also check for drive roots like "C:\"
+	if runtime.GOOS == "windows" && len(clean) == 3 && clean[1] == ':' && clean[2] == '\\' {
+		return fmt.Errorf("cleanPath: refusing to remove drive root %q", clean)
+	}
+
+	// Refuse to delete home directory
+	if home, err := os.UserHomeDir(); err == nil {
+		if clean == filepath.Clean(home) {
+			return fmt.Errorf("cleanPath: refusing to remove home directory %q", clean)
+		}
+	}
+
+	// Module cache has 0555 directories; make them writable in order to remove content.
+	err := filepath.WalkDir(clean, func(path string, info fs.DirEntry, walkErr error) error {
+		// Respect context cancellation for long directory trees
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if walkErr != nil {
+			slog.Debug("cleanPath: error walking path", "path", path, "err", walkErr)
+			return nil
+		}
+
+		if info.IsDir() {
+			if chmodErr := os.Chmod(path, 0o755); chmodErr != nil {
+				return fmt.Errorf("chmod %q: %w", path, chmodErr)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return fmt.Errorf("cleanPath: error preparing %q for removal: %w", clean, err)
+	}
+
+	// Check context again before potentially long RemoveAll
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if err := os.RemoveAll(clean); err != nil {
+		return fmt.Errorf("cleanPath: failed to remove %q: %w", clean, err)
+	}
+
+	return nil
 }
