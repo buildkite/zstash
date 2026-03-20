@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.94.0
 	github.com/aws/smithy-go v1.24.0
 	github.com/google/go-querystring v1.1.0
-	github.com/klauspost/compress v1.18.2
+	github.com/klauspost/compress v1.18.4
 	github.com/stretchr/testify v1.11.1
 	github.com/wolfeidau/quickzip v1.0.2
 	go.opentelemetry.io/otel v1.40.0
