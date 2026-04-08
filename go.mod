@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.5
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.20.16
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.94.0
-	github.com/aws/smithy-go v1.24.0
+	github.com/aws/smithy-go v1.24.2
 	github.com/google/go-querystring v1.1.0
 	github.com/klauspost/compress v1.18.2
 	github.com/stretchr/testify v1.11.1
@@ -22,7 +22,7 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.5 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.16 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.16 // indirect
