@@ -166,7 +166,7 @@ func (fn roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func (c Client) Do(req *http.Request) (*http.Response, error) {
-	return c.client.Do(req)
+	return c.client.Do(req) //nolint:gosec // G704: URL constructed from trusted endpoint set at client init
 }
 
 // MessageGetter interface for types that have a Message field

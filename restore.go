@@ -331,7 +331,17 @@ func cleanPath(ctx context.Context, dir string) error {
 	}
 
 	// Module cache has 0555 directories; make them writable in order to remove content.
-	err := filepath.WalkDir(clean, func(path string, info fs.DirEntry, walkErr error) error {
+	// Use os.Root to confine chmod operations within `clean` and prevent symlink TOCTOU traversal.
+	root, err := os.OpenRoot(clean)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("cleanPath: open root %q: %w", clean, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	err = fs.WalkDir(root.FS(), ".", func(relPath string, info fs.DirEntry, walkErr error) error {
 		// Respect context cancellation for long directory trees
 		select {
 		case <-ctx.Done():
@@ -340,13 +350,13 @@ func cleanPath(ctx context.Context, dir string) error {
 		}
 
 		if walkErr != nil {
-			slog.Debug("cleanPath: error walking path", "path", path, "err", walkErr)
+			slog.Debug("cleanPath: error walking path", "path", relPath, "err", walkErr)
 			return nil
 		}
 
 		if info.IsDir() {
-			if chmodErr := os.Chmod(path, 0o755); chmodErr != nil {
-				return fmt.Errorf("chmod %q: %w", path, chmodErr)
+			if chmodErr := root.Chmod(relPath, 0o755); chmodErr != nil {
+				return fmt.Errorf("chmod %q: %w", relPath, chmodErr)
 			}
 		}
 		return nil

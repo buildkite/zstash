@@ -93,8 +93,8 @@ func OptionsFromURL(s3url string) (*Options, error) {
 // S3Blob implements the Blob interface using AWS S3
 type S3Blob struct {
 	client      *s3.Client
-	uploader    *manager.Uploader
-	downloader  *manager.Downloader
+	uploader    *manager.Uploader   //nolint:staticcheck // SA1019: pending migration to transfermanager
+	downloader  *manager.Downloader //nolint:staticcheck // SA1019: pending migration to transfermanager
 	bucketName  string
 	prefix      string
 	concurrency int
@@ -148,11 +148,11 @@ func NewS3Blob(ctx context.Context, s3url string) (*S3Blob, error) {
 	}
 
 	// Create the uploader and downloader with configured settings
-	uploader := manager.NewUploader(client, func(u *manager.Uploader) {
+	uploader := manager.NewUploader(client, func(u *manager.Uploader) { //nolint:staticcheck // SA1019: pending migration to transfermanager
 		u.Concurrency = concurrency
 		u.PartSize = partSize
 	})
-	downloader := manager.NewDownloader(client, func(d *manager.Downloader) {
+	downloader := manager.NewDownloader(client, func(d *manager.Downloader) { //nolint:staticcheck // SA1019: pending migration to transfermanager
 		d.Concurrency = concurrency
 		d.PartSize = partSize
 	})
@@ -207,7 +207,7 @@ func (b *S3Blob) Upload(ctx context.Context, filePath string, key string) (*Tran
 	)
 
 	// Upload the file to S3 using the multipart uploader
-	result, err := b.uploader.Upload(ctx, &s3.PutObjectInput{
+	result, err := b.uploader.Upload(ctx, &s3.PutObjectInput{ //nolint:staticcheck // SA1019: pending migration to transfermanager
 		Bucket: aws.String(b.bucketName),
 		Key:    aws.String(fullKey),
 		Body:   file,
@@ -284,10 +284,10 @@ func (b *S3Blob) Download(ctx context.Context, key string, destPath string) (*Tr
 	var partCount atomic.Int32
 
 	// Download the file from S3 using parallel range requests
-	bytesWritten, err := b.downloader.Download(ctx, destFile, &s3.GetObjectInput{
+	bytesWritten, err := b.downloader.Download(ctx, destFile, &s3.GetObjectInput{ //nolint:staticcheck // SA1019: pending migration to transfermanager
 		Bucket: aws.String(b.bucketName),
 		Key:    aws.String(fullKey),
-	}, func(d *manager.Downloader) {
+	}, func(d *manager.Downloader) { //nolint:staticcheck // SA1019: pending migration to transfermanager
 		d.ClientOptions = append(d.ClientOptions, func(o *s3.Options) {
 			o.APIOptions = append(o.APIOptions, func(stack *smithymiddleware.Stack) error {
 				return stack.Initialize.Add(smithymiddleware.InitializeMiddlewareFunc(
