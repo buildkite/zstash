@@ -83,12 +83,15 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 
 	c.callProgress(cacheID, "validating", "Validating cache configuration", 0, 0)
 
-	// Validate cache paths exist
-	if err := checkPathsExist(cacheConfig.Paths); err != nil {
+	// Filter paths to only those that exist, collecting warnings for missing paths
+	validPaths, warnings, err := filterExistingPaths(cacheConfig.Paths)
+	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "invalid cache paths")
 		return result, fmt.Errorf("invalid cache paths: %w", err)
 	}
+	result.Warnings = warnings
+	cacheConfig.Paths = validPaths
 
 	c.callProgress(cacheID, "checking_exists", "Checking if cache already exists", 0, 0)
 
@@ -256,29 +259,37 @@ func (c *Cache) Save(ctx context.Context, cacheID string) (SaveResult, error) {
 	return result, nil
 }
 
-// checkPathsExist validates that all paths exist on the filesystem
-func checkPathsExist(paths []string) error {
+// filterExistingPaths validates paths and returns only those that exist.
+// Missing paths are returned as warnings rather than causing errors.
+func filterExistingPaths(paths []string) (validPaths []string, warnings []string, err error) {
 	if len(paths) == 0 {
-		return fmt.Errorf("no paths provided")
+		return nil, nil, fmt.Errorf("no paths provided")
 	}
 
 	for _, path := range paths {
+		expandedPath := path
 		// Handle ~ expansion
 		if len(path) > 0 && path[0] == '~' {
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
-				return fmt.Errorf("failed to get home directory: %w", err)
+				return nil, nil, fmt.Errorf("failed to get home directory: %w", err)
 			}
-			path = homeDir + path[1:]
+			expandedPath = homeDir + path[1:]
 		}
 
 		// Check if the path exists
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return fmt.Errorf("path does not exist: %s", path)
+		if _, err := os.Stat(expandedPath); os.IsNotExist(err) {
+			warnings = append(warnings, fmt.Sprintf("path does not exist: %s", path))
+		} else {
+			validPaths = append(validPaths, path)
 		}
 	}
 
-	return nil
+	if len(validPaths) == 0 {
+		return nil, warnings, fmt.Errorf("no valid paths found")
+	}
+
+	return validPaths, warnings, nil
 }
 
 // validateCacheStore validates the cache store configuration

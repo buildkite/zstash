@@ -202,6 +202,15 @@ type SaveResult struct {
 	// TotalDuration is the end-to-end duration of the save operation,
 	// from validation through commit (if created) or early exit (if exists).
 	TotalDuration time.Duration
+
+	// Warnings contains non-fatal issues encountered during the save operation,
+	// such as paths that were configured but did not exist.
+	Warnings []string
+}
+
+// HasWarnings one or more warnings are present in the result
+func (sr *SaveResult) HasWarnings() bool {
+	return len(sr.Warnings) > 0
 }
 
 // RestoreResult contains detailed information about a cache restore operation.
