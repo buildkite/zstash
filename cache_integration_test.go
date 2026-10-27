@@ -20,6 +20,9 @@ import (
 // mockAPIClient implements api.CacheClient for integration testing
 type mockAPIClient struct {
 	registries map[string]*mockRegistry
+	// contentAddressed names objects by the archive SHA-256, like the
+	// Buildkite cache service.
+	contentAddressed bool
 }
 
 type mockRegistry struct {
@@ -112,6 +115,9 @@ func (m *mockAPIClient) CacheCreate(ctx context.Context, registry string, req ap
 
 	uploadID := fmt.Sprintf("upload-%d", time.Now().UnixNano())
 	storeObjectName := fmt.Sprintf("%s/%s/%s/%s", req.Organization, req.Pipeline, req.Branch, req.Key)
+	if m.contentAddressed {
+		storeObjectName = strings.TrimPrefix(req.Digest, "sha256:")
+	}
 
 	entry := &mockCacheEntry{
 		key:             req.Key,
@@ -515,4 +521,50 @@ func TestCacheIntegration_TransferMetrics(t *testing.T) {
 		restoreResult.Transfer.BytesTransferred,
 		restoreResult.Transfer.TransferSpeed,
 		restoreResult.Transfer.Duration)
+}
+
+func TestCacheIntegration_RestoreDigestCheck(t *testing.T) {
+	ctx := context.Background()
+
+	cacheClient, cacheDir, storageDir := setupTestCache(t, "local_file")
+	cacheClient.client.(*mockAPIClient).contentAddressed = true
+
+	saveResult, err := cacheClient.Save(ctx, "test-cache")
+	require.NoError(t, err)
+	require.True(t, saveResult.CacheCreated)
+	objectPath := filepath.Join(storageDir, saveResult.Archive.Sha256Sum)
+	require.FileExists(t, objectPath, "object should be stored under its SHA-256")
+
+	resetCacheDir := func(t *testing.T) {
+		t.Helper()
+		require.NoError(t, os.RemoveAll(cacheDir))
+		require.NoError(t, os.MkdirAll(cacheDir, 0o755))
+	}
+
+	t.Run("matching digest restores", func(t *testing.T) {
+		resetCacheDir(t)
+
+		result, err := cacheClient.Restore(ctx, "test-cache")
+		require.NoError(t, err)
+		assert.True(t, result.CacheRestored)
+		assert.True(t, result.CacheHit)
+		assert.FileExists(t, filepath.Join(cacheDir, "large-file-1.bin"))
+	})
+
+	t.Run("replaced object is a miss and is not extracted", func(t *testing.T) {
+		resetCacheDir(t)
+		sentinel := filepath.Join(cacheDir, "sentinel.txt")
+		require.NoError(t, os.WriteFile(sentinel, []byte("keep"), 0o600))
+
+		require.NoError(t, os.WriteFile(objectPath, []byte("not the original archive"), 0o600))
+
+		result, err := cacheClient.Restore(ctx, "test-cache")
+		require.NoError(t, err)
+		assert.False(t, result.CacheRestored, "should not restore a changed object")
+		assert.False(t, result.CacheHit, "a changed object should be a miss")
+		assert.False(t, result.FallbackUsed)
+		assert.Equal(t, "v1-test-key", result.Key)
+		assert.FileExists(t, sentinel, "paths should not be cleaned on a digest mismatch")
+		assert.NoFileExists(t, filepath.Join(cacheDir, "large-file-1.bin"))
+	})
 }

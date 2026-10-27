@@ -2,12 +2,17 @@ package zstash
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -26,8 +31,12 @@ import (
 //  1. Validates the cache configuration
 //  2. Checks if the cache exists (tries exact key, then fallback keys)
 //  3. Downloads the cache archive from cloud storage
-//  4. Extracts files to their original paths
-//  5. Cleans up temporary files
+//  4. Verifies the archive SHA-256 when the object name is a SHA-256
+//  5. Extracts files to their original paths
+//  6. Cleans up temporary files
+//
+// If the archive digest does not match its object name, the function logs a
+// warning and returns CacheRestored=false without extracting.
 //
 // If no matching cache is found (including fallback keys), the function returns
 // early with CacheRestored=false. This is not an error condition.
@@ -36,8 +45,8 @@ import (
 // ctx is cancelled, cleaning up any temporary resources (downloaded archives).
 //
 // Progress callbacks (if configured) are invoked at each stage with the
-// following stages: "validating", "checking_exists", "downloading", "extracting",
-// "complete".
+// following stages: "validating", "checking_exists", "downloading", "verifying",
+// "extracting", "complete".
 //
 // Returns RestoreResult with detailed metrics, or an error if the operation failed.
 //
@@ -155,6 +164,34 @@ func (c *Cache) Restore(ctx context.Context, cacheID string) (RestoreResult, err
 		Concurrency:      transferInfo.Concurrency,
 	}
 
+	c.callProgress(cacheID, "verifying", "Verifying cache archive digest", 0, 0)
+
+	if err := verifyArchiveDigest(ctx, archiveFile, retrieveResp.StoreObjectName); err != nil {
+		if !errors.Is(err, errDigestMismatch) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "failed to verify cache archive")
+			return result, fmt.Errorf("failed to verify cache archive: %w", err)
+		}
+
+		// Treat a tampered or corrupt archive as a miss, so the job rebuilds
+		// the paths instead of extracting untrusted content.
+		slog.Warn("cache archive digest mismatch, treating as cache miss",
+			"cache_id", cacheID, "key", result.Key, "object", retrieveResp.StoreObjectName, "error", err)
+		result.CacheHit = false
+		result.CacheRestored = false
+		result.FallbackUsed = false
+		result.TotalDuration = time.Since(startTime)
+		span.SetAttributes(
+			attribute.Bool("cache.hit", false),
+			attribute.Bool("cache.restored", false),
+			attribute.Bool("cache.digest_mismatch", true),
+			attribute.Int64("cache.duration_ms", result.TotalDuration.Milliseconds()),
+		)
+		span.SetStatus(codes.Ok, "cache digest mismatch")
+		c.callProgress(cacheID, "complete", "Cache digest mismatch", 0, 0)
+		return result, nil
+	}
+
 	c.callProgress(cacheID, "cleaning", "Cleaning paths", 0, 0)
 
 	for _, path := range cacheConfig.Paths {
@@ -263,6 +300,51 @@ func (c *Cache) downloadCache(ctx context.Context, retrieveResp api.CacheRetriev
 	span.SetStatus(codes.Ok, "download completed")
 
 	return tmpDir, archiveFile, transferInfo, nil
+}
+
+var (
+	errDigestMismatch = errors.New("archive digest does not match object name")
+	sha256HexPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// verifyArchiveDigest checks the SHA-256 of a downloaded archive against its
+// object name. Stores that name objects by content address use the hex
+// SHA-256 of the archive as the last path segment. Object names that are not
+// a SHA-256 are not checked.
+func verifyArchiveDigest(ctx context.Context, archiveFile, storeObjectName string) error {
+	expected := path.Base(storeObjectName)
+	if !sha256HexPattern.MatchString(expected) {
+		return nil
+	}
+
+	f, err := os.Open(archiveFile)
+	if err != nil {
+		return fmt.Errorf("failed to open archive: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, &contextReader{ctx: ctx, r: f}); err != nil {
+		return fmt.Errorf("failed to hash archive: %w", err)
+	}
+
+	if actual := hex.EncodeToString(h.Sum(nil)); actual != expected {
+		return fmt.Errorf("%w: expected %s, got %s", errDigestMismatch, expected, actual)
+	}
+	return nil
+}
+
+// contextReader stops a long read when ctx is cancelled.
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (cr *contextReader) Read(p []byte) (int, error) {
+	if err := cr.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return cr.r.Read(p)
 }
 
 // extractCache extracts files from a cache archive

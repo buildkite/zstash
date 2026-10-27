@@ -2,9 +2,13 @@ package zstash
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -96,4 +100,54 @@ func TestCleanPathWindowsDriveRoot(t *testing.T) {
 	err := cleanPath(context.Background(), "C:\\")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refusing to remove drive root")
+}
+
+func TestVerifyArchiveDigest(t *testing.T) {
+	ctx := context.Background()
+	body := []byte("archive body")
+	sum := sha256.Sum256(body)
+	digest := hex.EncodeToString(sum[:])
+	otherSum := sha256.Sum256([]byte("other body"))
+	otherDigest := hex.EncodeToString(otherSum[:])
+
+	archiveFile := filepath.Join(t.TempDir(), "archive")
+	require.NoError(t, os.WriteFile(archiveFile, body, 0o600))
+
+	tests := []struct {
+		name       string
+		objectName string
+		wantErr    error
+	}{
+		{name: "matching digest", objectName: digest},
+		{name: "matching digest under a prefix", objectName: "buildkite/" + digest},
+		{name: "mismatched digest", objectName: otherDigest, wantErr: errDigestMismatch},
+		{name: "mismatched digest under a prefix", objectName: "buildkite/" + otherDigest, wantErr: errDigestMismatch},
+		{name: "name is not a digest", objectName: "org/pipeline/main/v1-key"},
+		{name: "uppercase hex is not a digest", objectName: strings.ToUpper(otherDigest)},
+		{name: "short hex is not a digest", objectName: otherDigest[:63]},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := verifyArchiveDigest(ctx, archiveFile, tt.objectName)
+			if tt.wantErr == nil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+
+	t.Run("missing file is an error, not a mismatch", func(t *testing.T) {
+		err := verifyArchiveDigest(ctx, filepath.Join(t.TempDir(), "missing"), digest)
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, errDigestMismatch))
+	})
+
+	t.Run("cancelled context stops the hash", func(t *testing.T) {
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		err := verifyArchiveDigest(cancelled, archiveFile, digest)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
 }
